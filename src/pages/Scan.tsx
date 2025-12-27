@@ -3,9 +3,11 @@ import { DatasetService } from "@/modules/dataset/DatasetService";
 import { CardClassifierService } from "@/modules/vision/CardClassifierService";
 import { OCRService } from "@/modules/vision/OCRService";
 import { Button } from "@/ui/button";
+import { Toggle } from "@/ui/toggle";
 import * as tf from "@tensorflow/tfjs";
 import {
   ArrowLeft,
+  Bot,
   Cat,
   Check,
   Download,
@@ -27,6 +29,7 @@ export default function Scan() {
 
   // Real-time Debug
   const [isDebugMode, setIsDebugMode] = useState(false);
+  const [showRobotVision, setShowRobotVision] = useState(false);
 
   // Training Mode
   const [isTrainingMode, setIsTrainingMode] = useState(false);
@@ -390,7 +393,9 @@ export default function Scan() {
 
             // Update debug image every frame but use a throttled/lower quality one if needed
             // For now, let's restore it as user requested it back
-            setDebugImage(imageSrc);
+            if (showRobotVision) {
+              setDebugImage(imageSrc);
+            }
             setDebugInverted(usedInverted);
             setDebugRawText(result.text);
             setDebugConfidence(Math.round(result.confidence));
@@ -550,6 +555,18 @@ export default function Scan() {
           />
           {isDebugMode ? "Live ON" : "Live OFF"}
         </Button>
+        {isDebugMode && (
+          <Toggle
+            pressed={showRobotVision}
+            onPressedChange={setShowRobotVision}
+            variant="outline"
+            size="sm"
+            className="text-white bg-black/20 backdrop-blur-sm hover:bg-black/40 data-[state=on]:bg-green-500 data-[state=on]:text-white border-none"
+            aria-label="Toggle robot vision"
+          >
+            <Bot className="h-4 w-4" />
+          </Toggle>
+        )}
         <Button
           variant={isTrainingMode ? "secondary" : "ghost"}
           size="sm"
@@ -824,7 +841,7 @@ export default function Scan() {
             )}
 
             {/* Debug Overlay */}
-            {isDebugMode && (
+            {isDebugMode && showRobotVision && (
               <>
                 {/* Robot Vision Preview (Bottom Right Corner) */}
                 {debugImage && (
