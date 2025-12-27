@@ -1,9 +1,11 @@
 import { CameraView } from "@/modules/camera/CameraView";
+import { DatasetService } from "@/modules/dataset/DatasetService";
 import { CardClassifierService } from "@/modules/vision/CardClassifierService";
 import { OCRService } from "@/modules/vision/OCRService";
 import { Button } from "@/ui/button";
 import {
   ArrowLeft,
+  Cat,
   Check,
   Download,
   GraduationCap,
@@ -86,13 +88,27 @@ export default function Scan() {
     CardClassifierService.getInstance()
   );
 
+  // Dataset Export Refs
+  const lastCaptureRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const targetBoxRef = useRef<HTMLDivElement>(null);
+
+  const datasetService = DatasetService.getInstance();
+  const [sessionCount, setSessionCount] = useState(0);
+  const [sessionEntries, setSessionEntries] = useState<any[]>([]);
+  const [showGallery, setShowGallery] = useState(false);
+
+  const [isModelLoading, setIsModelLoading] = useState(true);
+
   useEffect(() => {
     // Init Classifier
     const initClassifier = async () => {
+      setIsModelLoading(true);
       await classifierRef.current.loadModel();
       // Load counts
       const counts = classifierRef.current.getExampleCount();
       if (counts) setExampleCounts(counts);
+      setIsModelLoading(false);
     };
     initClassifier();
   }, []);
@@ -102,14 +118,16 @@ export default function Scan() {
     let active = true;
 
     const initWorker = async () => {
+      // In Debug Mode, we now rely mainly on the CNN model.
+      // OCR is kept as a legacy fallback but we might not need to init it aggressively.
+      // For now, keep it if user wants to compare.
       if (!isDebugMode) return;
 
       try {
-        console.log("Initializing OCR Worker...");
+        console.log("Initializing OCR Worker (Backup)...");
         const worker = await OCRService.createWorker();
         if (active) {
           workerRef.current = worker;
-          console.log("OCR Worker Ready");
         } else {
           await worker.terminate();
         }
@@ -121,12 +139,10 @@ export default function Scan() {
     if (isDebugMode) {
       initWorker();
     } else {
-      // Cleanup if mode is turned off
       if (workerRef.current) {
         workerRef.current.terminate();
         workerRef.current = null;
       }
-      // Clear debug state
       setDebugResult("-");
       setDebugConfidence(0);
       setDebugRawText("");
@@ -150,11 +166,22 @@ export default function Scan() {
     setCapturedImage(imageSrc);
     setIsProcessing(true);
     try {
-      // If we have a trained model, use it first? For now, stick to OCR for the "Main" action unless confident.
-      // Or just use OCR as default flow.
-      const text = await OCRService.recognizeText(imageSrc);
-      const cleanedText = text.replace(/[^0-9-]/g, "");
-      setResultText(cleanedText || text);
+      // Create an image element to pass to the classifier
+      const img = new Image();
+      img.src = imageSrc;
+      await new Promise((resolve) => (img.onload = resolve));
+
+      // 1. Try CNN Prediction first
+      const mlResult = await classifierRef.current.predict(img as any);
+
+      if (mlResult.confidence > 0.6) {
+        setResultText(mlResult.label);
+      } else {
+        // 2. Fallback to OCR if CNN is unsure
+        const text = await OCRService.recognizeText(imageSrc);
+        const cleanedText = text.replace(/[^0-9-]/g, "");
+        setResultText(cleanedText || text);
+      }
     } catch (error) {
       console.error("Processing failed", error);
       setResultText("Erreur lors de l'analyse");
@@ -193,6 +220,22 @@ export default function Scan() {
       console.error("Audio feedback failed", e);
     }
 
+    // Capture for Dataset Export
+    if (containerRef.current && targetBoxRef.current) {
+      try {
+        await datasetService.addEntry(
+          video,
+          selectedLabel,
+          containerRef.current.getBoundingClientRect(),
+          targetBoxRef.current.getBoundingClientRect()
+        );
+        setSessionCount(datasetService.getSessionCount());
+        setSessionEntries([...datasetService.getSessionEntries()]);
+      } catch (e) {
+        console.error("Failed to add entry to dataset session", e);
+      }
+    }
+
     await classifierRef.current.addExample(video, selectedLabel);
     const counts = classifierRef.current.getExampleCount();
     if (counts) setExampleCounts(counts);
@@ -214,40 +257,30 @@ export default function Scan() {
     }
   };
 
-  const handleExportModel = async () => {
-    // Export only the currently selected label
-    const labelToExport = selectedLabel;
-
-    // Check if we have examples
-    if (!exampleCounts[labelToExport] || exampleCounts[labelToExport] === 0) {
-      alert(`Aucune donnée à sauvegarder pour le chiffre ${labelToExport}`);
+  const handleExportDataset = async () => {
+    if (datasetService.getSessionCount() === 0) {
+      alert("Veuillez d'abord scanner au moins une carte.");
       return;
     }
 
-    const jsonStr = await classifierRef.current.getClassifierDatasetJSON(
-      labelToExport
-    );
+    // Show gallery for final review before download
+    setShowGallery(true);
+  };
 
-    if (!jsonStr) {
-      alert(`Erreur lors de la récupération des données pour ${labelToExport}`);
-      return;
+  const performDownload = async () => {
+    try {
+      await datasetService.exportSessionZip(selectedLabel);
+
+      // Ask to clear session after download
+      if (confirm("Dataset téléchargé ! Effacer la session en cours ?")) {
+        datasetService.clearSession();
+        setSessionCount(0);
+        setSessionEntries([]);
+      }
+    } catch (e) {
+      console.error("Export failed", e);
+      alert("Erreur lors de l'export du dataset.");
     }
-
-    const timestamp = Math.floor(Date.now() / 1000); // Unix timestamp in seconds
-    const filename = `skyjo_model_${labelToExport}_${timestamp}.json`;
-
-    const blob = new Blob([jsonStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    // Optional: Feedback
-    // alert(`Sauvegarde lancée : ${filename}`);
   };
 
   const handleFrame = async (video: HTMLVideoElement) => {
@@ -286,37 +319,22 @@ export default function Scan() {
         // 1. Try TF.js Classifier first
         const mlResult = await classifierRef.current.predict(video);
 
-        // Threshold check: >0.9 confidence AND not a "Background" class if we implemented one.
-        // For now, assume if confidence is high, it's good.
-        // BUT if no cards are present, we might get false positives if we don't have a "background" class.
-        // Let's rely on high confidence for now.
-        if (mlResult && mlResult.confidences[mlResult.label] > 0.9) {
+        // Update Debug UI with ML Result
+        if (mlResult.method === "CNN") {
           setDebugResult(mlResult.label);
-          setDebugConfidence(
-            Math.round(mlResult.confidences[mlResult.label] * 100)
-          );
-          setDebugRawText(`ML: ${mlResult.label}`);
-          setDebugImage(null); // No debug image for ML
+          setDebugConfidence(Math.round(mlResult.confidence * 100));
+          setDebugRawText(`CNN: ${mlResult.label}`);
           setDebugInverted(false);
-          // Only skip OCR if we are REALLY sure.
-          return;
-        } else if (mlResult && mlResult.confidences[mlResult.label] > 0.5) {
-          // Show weak ML prediction
-          setDebugResult(`? (${mlResult.label}?)`);
-          setDebugConfidence(
-            Math.round(mlResult.confidences[mlResult.label] * 100)
-          );
-        } else {
-          // No ML confidence
-          setDebugResult("-");
-          setDebugConfidence(0);
+          // If CNN is confident, we stop here (no OCR)
+          if (mlResult.confidence > 0.6) return;
+        } else if (mlResult.method === "KNN") {
+          // KNN (Temporary memory)
+          setDebugResult(mlResult.label);
+          setDebugConfidence(Math.round(mlResult.confidence * 100));
+          setDebugRawText(`KNN: ${mlResult.label}`);
         }
 
-        // 2. Fallback to OCR if ML is unsure (or always run it for comparison in debug?)
-        // The user said: "actuellement s'il y a aucune carte le mode live me dit -2"
-        // This is likely because the ML model forces a prediction to the closest class.
-        // Solution: Add a threshold. If max confidence < 0.8, display nothing or OCR.
-
+        // 2. Fallback to OCR if ML is unsure (or if CNN not loaded yet)
         if (workerRef.current) {
           const canvas = document.createElement("canvas");
           canvas.width = video.videoWidth;
@@ -401,8 +419,93 @@ export default function Scan() {
     "12",
   ];
 
+  const handleRemoveEntry = (index: number) => {
+    datasetService.removeEntry(index);
+    setSessionCount(datasetService.getSessionCount());
+    setSessionEntries([...datasetService.getSessionEntries()]);
+    // Note: We don't remove from classifier/counts because we can't easily undo "addExample" in KNN without reloading.
+    // But that's fine, the visual feedback count will be slightly off vs zip content, but the ZIP will be clean.
+  };
+
   return (
-    <div className="flex flex-col h-[100dvh] bg-black overflow-hidden">
+    <div className="flex flex-col h-dvh bg-black overflow-hidden">
+      {/* Model Loading Overlay */}
+      {isModelLoading && (
+        <div className="absolute inset-0 z-50 bg-black/90 flex flex-col items-center justify-center text-white animate-in fade-in duration-500">
+          <div className="relative mb-4">
+            <div className="w-16 h-16 border-4 border-zinc-800 border-t-blue-500 rounded-full animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Cat className="h-6 w-6 text-blue-500 animate-pulse" />
+            </div>
+          </div>
+          <h2 className="text-xl font-bold mb-2">Chargement de Neko...</h2>
+          <p className="text-zinc-400 text-sm">
+            Initialisation du modèle de reconnaisance
+          </p>
+        </div>
+      )}
+
+      {/* Gallery Modal */}
+      {showGallery && (
+        <div className="absolute inset-0 z-50 bg-black/95 flex flex-col p-4 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-bold text-lg">
+              Vérification de Session ({sessionCount})
+            </h3>
+            <Button variant="ghost" onClick={() => setShowGallery(false)}>
+              Fermer
+            </Button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-2">
+            {sessionEntries.map((entry, idx) => {
+              const url = URL.createObjectURL(entry.crop);
+              return (
+                <div
+                  key={entry.annotation.id}
+                  className="relative aspect-[2/3] bg-zinc-800 rounded-lg overflow-hidden border border-zinc-700"
+                >
+                  <img src={url} className="w-full h-full object-cover" />
+                  <div className="absolute top-1 right-1">
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="h-6 w-6 rounded-full"
+                      onClick={() => handleRemoveEntry(idx)}
+                    >
+                      <span className="text-xs">✕</span>
+                    </Button>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-[10px] text-center text-white py-1">
+                    #{idx + 1}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-zinc-800 flex gap-4">
+            <Button
+              className="flex-1"
+              variant="outline"
+              onClick={() => setShowGallery(false)}
+            >
+              Retour au scan
+            </Button>
+            <Button
+              className="flex-1 bg-green-600 hover:bg-green-700"
+              onClick={() => {
+                setShowGallery(false);
+                performDownload();
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Télécharger le ZIP
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Hidden File Input for Import - REMOVED */}
 
       <div className="absolute top-4 left-4 z-10 flex gap-2">
@@ -487,7 +590,7 @@ export default function Scan() {
             </div>
           </div>
         ) : (
-          <div className="relative w-full h-full">
+          <div className="relative w-full h-full" ref={containerRef}>
             <CameraView
               onCapture={handleCapture}
               onFrame={async (video) => {
@@ -512,6 +615,14 @@ export default function Scan() {
                       {Object.values(exampleCounts).reduce((a, b) => a + b, 0)}{" "}
                       exemples total
                     </span>
+                    {sessionCount > 0 && (
+                      <span
+                        className="text-xs text-yellow-400 font-bold animate-pulse cursor-pointer underline decoration-dotted"
+                        onClick={() => setShowGallery(true)}
+                      >
+                        {sessionCount} en attente
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex gap-2 overflow-x-auto pb-2">
@@ -561,11 +672,11 @@ export default function Scan() {
                     <Button
                       variant="default"
                       className="bg-green-600 hover:bg-green-700 h-auto flex flex-col items-center justify-center px-4"
-                      onClick={handleExportModel}
-                      title="Terminer et Sauvegarder"
+                      onClick={handleExportDataset}
+                      title="Sauvegarder le Dataset (ZIP)"
                     >
                       <Download className="h-5 w-5 mb-1" />
-                      <span className="text-xs font-bold">Sauver</span>
+                      <span className="text-xs font-bold">Zip</span>
                     </Button>
 
                     <Button
@@ -580,6 +691,9 @@ export default function Scan() {
                           )
                         ) {
                           classifierRef.current.clearAllExamples();
+                          datasetService.clearSession();
+                          setSessionCount(0);
+                          setSessionEntries([]);
                           setExampleCounts({});
                           setTrainingStep(0);
                           setStepProgress(0);
@@ -595,7 +709,10 @@ export default function Scan() {
 
             {/* Target Box (Center) - Shared for Debug & Training */}
             {(isDebugMode || isTrainingMode) && (
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10 h-[60%] aspect-[2/3]">
+              <div
+                ref={targetBoxRef}
+                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10 h-[60%] aspect-[2/3]"
+              >
                 <div
                   className={`w-full h-full border-4 rounded-xl flex items-center justify-center relative box-border transition-colors duration-300 ${
                     isTrainingMode
