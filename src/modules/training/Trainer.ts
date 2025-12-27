@@ -48,13 +48,13 @@ export class Trainer {
 
   /**
    * Creates a lightweight CNN model suitable for Skyjo card recognition.
-   * Input: 224x224x3 (RGB images)
+   * Input: 224x224x3 (RGB images) - Restored to match original successful model
    * Output: 15 classes (probabilities)
    */
   public createModel(): tf.Sequential {
     const model = tf.sequential();
 
-    // 1. Convolutional Layer 1 (MobileNet-style lighter config)
+    // 1. Convolutional Layer 1
     model.add(
       tf.layers.conv2d({
         inputShape: [224, 224, 3],
@@ -64,37 +64,34 @@ export class Trainer {
         padding: "same",
       })
     );
-    model.add(tf.layers.batchNormalization());
     model.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
 
-    // 2. Convolutional Layer 2 (Separable for mobile optimization)
+    // 2. Convolutional Layer 2
     model.add(
-      tf.layers.separableConv2d({
+      tf.layers.conv2d({
         filters: 32,
         kernelSize: 3,
         activation: "relu",
         padding: "same",
       })
     );
-    model.add(tf.layers.batchNormalization());
     model.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
 
-    // 3. Convolutional Layer 3 (Separable for mobile optimization)
+    // 3. Convolutional Layer 3
     model.add(
-      tf.layers.separableConv2d({
+      tf.layers.conv2d({
         filters: 64,
         kernelSize: 3,
         activation: "relu",
         padding: "same",
       })
     );
-    model.add(tf.layers.batchNormalization());
     model.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
 
     // 4. Flatten & Dense Layers
     model.add(tf.layers.flatten());
-    model.add(tf.layers.dropout({ rate: 0.5 })); // Prevent overfitting
-    model.add(tf.layers.dense({ units: 64, activation: "relu" })); // Smaller dense layer
+    model.add(tf.layers.dropout({ rate: 0.5 }));
+    model.add(tf.layers.dense({ units: 64, activation: "relu" }));
 
     // Output Layer
     model.add(
@@ -103,7 +100,7 @@ export class Trainer {
 
     // Compile
     model.compile({
-      optimizer: tf.train.adam(0.0001), // Reduced learning rate for stability
+      optimizer: tf.train.adam(0.001),
       loss: "categoricalCrossentropy",
       metrics: ["accuracy"],
     });
@@ -117,25 +114,43 @@ export class Trainer {
    * Returns Tensors directly (simplest robust method for PC training)
    */
   public async loadDatasetFromZips(
-    zipFiles: File[]
+    zipFiles: File[],
+    onProgress?: (count: number, total: number) => void
   ): Promise<{ xs: tf.Tensor4D; ys: tf.Tensor2D }> {
     this.stopRequested = false;
     const images: tf.Tensor3D[] = [];
     const labels: number[] = [];
 
-    for (const zipFile of zipFiles) {
-      if (this.stopRequested) break;
-      const zip = await JSZip.loadAsync(zipFile);
+    let totalFiles = 0;
+    const zipContents: Array<{ zip: JSZip; files: string[] }> = [];
 
-      // Filter for crop images
+    // Pre-scan to count files
+    for (const zipFile of zipFiles) {
+      const zip = await JSZip.loadAsync(zipFile);
       const cropFiles = Object.keys(zip.files).filter(
         (path) =>
           path.startsWith("crops/") &&
           (path.endsWith(".jpg") || path.endsWith(".jpeg"))
       );
+      totalFiles += cropFiles.length;
+      zipContents.push({ zip, files: cropFiles });
+    }
 
-      for (const filename of cropFiles) {
+    let processedCount = 0;
+
+    for (const { zip, files } of zipContents) {
+      if (this.stopRequested) break;
+
+      for (const filename of files) {
         if (this.stopRequested) break;
+
+        // Report progress
+        processedCount++;
+        if (onProgress && processedCount % 10 === 0) {
+          onProgress(processedCount, totalFiles);
+          await tf.nextFrame(); // Keep UI responsive
+        }
+
         // Extract label from filename: skyjo_crop_[LABEL]_[timestamp].jpg
         const match = filename.match(/skyjo_crop_(-?\d+)_/);
         if (match && match[1]) {
@@ -150,7 +165,7 @@ export class Trainer {
             const tensor = tf.tidy(() => {
               return tf.browser
                 .fromPixels(imgBitmap)
-                .resizeNearestNeighbor([224, 224]) // Ensure size
+                .resizeBilinear([224, 224]) // Restored to 224x224
                 .toFloat()
                 .div(tf.scalar(255)) as tf.Tensor3D;
             });
@@ -186,7 +201,33 @@ export class Trainer {
   }
 
   /**
-   * Trains the model using the provided dataset.
+   * Augments a batch of images with random variations (Vectorized for speed)
+   */
+  private augmentBatch(batch: tf.Tensor4D): tf.Tensor4D {
+    return tf.tidy(() => {
+      const batchSize = batch.shape[0];
+      let aug = batch;
+
+      // 1. Random Brightness (+/- 10%)
+      // Generate [batch, 1, 1, 1] tensor for broadcasting
+      const brightness = tf.randomUniform([batchSize, 1, 1, 1], -0.1, 0.1);
+      aug = aug.add(brightness).clipByValue(0, 1) as tf.Tensor4D;
+
+      // 2. Random Contrast (0.9 to 1.1)
+      // Formula: (x - 0.5) * contrast + 0.5
+      const contrast = tf.randomUniform([batchSize, 1, 1, 1], 0.9, 1.1);
+      aug = aug
+        .sub(0.5)
+        .mul(contrast)
+        .add(0.5)
+        .clipByValue(0, 1) as tf.Tensor4D;
+
+      return aug;
+    });
+  }
+
+  /**
+   * Trains the model using a data generator to handle augmentation on-the-fly.
    */
   public async train(
     data: { xs: tf.Tensor4D; ys: tf.Tensor2D },
@@ -200,25 +241,94 @@ export class Trainer {
     if (!this.model) throw new Error("Model creation failed");
 
     const numSamples = data.xs.shape[0];
-    console.log(`Starting training with ${numSamples} samples...`);
+    console.log(
+      `Starting training with ${numSamples} original samples (augmented on-the-fly)...`
+    );
 
-    const history = await this.model.fit(data.xs, data.ys, {
-      epochs: config.epochs,
-      batchSize: config.batchSize,
-      shuffle: true,
-      callbacks: {
-        onEpochEnd: async (epoch, logs) => {
-          const loss = logs?.loss ? logs.loss.toFixed(4) : "0.0000";
-          const acc = logs?.acc ? logs.acc.toFixed(4) : "0.0000";
-          console.log(`Epoch ${epoch + 1}: loss=${loss}, acc=${acc}`);
-          
-          await tf.nextFrame(); // Unblock UI
-          if (onEpochEnd) onEpochEnd(epoch + 1, logs);
-        },
+    // Custom training loop
+    const BATCH_SIZE = config.batchSize;
+    const STEPS_PER_EPOCH = Math.ceil(numSamples / BATCH_SIZE);
+
+    for (let epoch = 0; epoch < config.epochs; epoch++) {
+      if (this.model.stopTraining) break;
+
+      let epochLoss = 0;
+      let epochAcc = 0;
+
+      // Shuffle indices
+      const indices = tf.util.createShuffledIndices(numSamples);
+
+      for (let i = 0; i < numSamples; i += BATCH_SIZE) {
+        if (this.model.stopTraining) break;
+
+        const batchIndices = [];
+        for (let j = 0; j < BATCH_SIZE && i + j < numSamples; j++) {
+          batchIndices.push(indices[i + j]);
+        }
+
+        // 1. Extract Batch Data (outside tidy to manage disposal manually)
+        const batchIndicesTensor = tf.tensor1d(batchIndices, "int32");
+        const batchXs = data.xs.gather(batchIndicesTensor);
+        const batchYs = data.ys.gather(batchIndicesTensor);
+        batchIndicesTensor.dispose();
+
+        // 2. Augment (Vectorized Batch Augmentation - Faster)
+        const augmentedXs = this.augmentBatch(batchXs as tf.Tensor4D);
+
+        // 3. Train (Async, NEVER inside tidy)
+        // Cleanup input batch tensors immediately as we have the augmented copy
+        batchXs.dispose();
+
+        let lossVal = 0;
+        let accVal = 0;
+
+        try {
+          const res = await this.model.trainOnBatch(augmentedXs, batchYs);
+
+          if (Array.isArray(res)) {
+            lossVal = res[0];
+            accVal = res[1];
+          } else {
+            lossVal = (res as tf.Scalar).dataSync()[0];
+          }
+        } finally {
+          // 4. Cleanup Training Tensors
+          augmentedXs.dispose();
+          batchYs.dispose();
+        }
+
+        epochLoss += lossVal;
+        epochAcc += accVal;
+
+        // Give GPU time to breathe to prevent TDR/Context Loss
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        await tf.nextFrame();
+      }
+
+      // Epoch End
+      const avgLoss = epochLoss / STEPS_PER_EPOCH;
+      const avgAcc = epochAcc / STEPS_PER_EPOCH;
+
+      console.log(
+        `Epoch ${epoch + 1}: loss=${avgLoss.toFixed(4)}, acc=${avgAcc.toFixed(
+          4
+        )}`
+      );
+
+      if (onEpochEnd) {
+        onEpochEnd(epoch + 1, {
+          loss: avgLoss,
+          acc: avgAcc,
+        } as any);
+      }
+    }
+
+    return {
+      history: {
+        loss: [],
+        acc: [],
       },
-    });
-
-    return history;
+    };
   }
 
   /**

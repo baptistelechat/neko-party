@@ -125,17 +125,29 @@ export default function TrainingPage() {
       setLogs((prev) => [...prev, "Loading dataset from ZIPs..."]);
 
       // 1. Load Data
-      data = await trainerRef.current.loadDatasetFromZips(files);
+      data = await trainerRef.current.loadDatasetFromZips(
+        files,
+        (count, total) => {
+          setLogs((prev) => {
+            const lastLog = prev[prev.length - 1];
+            const msg = `Loading & Augmenting: ${count}/${total} source images...`;
+            if (lastLog && lastLog.startsWith("Loading & Augmenting:")) {
+              return [...prev.slice(0, -1), msg];
+            }
+            return [...prev, msg];
+          });
+        }
+      );
 
       setLogs((prev) => [
         ...prev,
-        `Dataset loaded: ${data?.xs.shape[0]} samples.`,
+        `Dataset ready: ${data?.xs.shape[0]} samples (including augmentation).`,
       ]);
 
       // 2. Configure Training
       const config: TrainingConfig = {
         epochs: 20,
-        batchSize: 16,
+        batchSize: 8, // Reduced to prevent WebGL Context Loss / GPU Crash
       };
 
       // 3. Train
@@ -152,8 +164,6 @@ export default function TrainingPage() {
         setLogs((prev) => [...prev, `TF.js Backend initialized: ${backend}`]);
 
         if (backend === "webgl") {
-          // Optimize WebGL for mobile memory
-          tf.env().set("WEBGL_DELETE_TEXTURE_THRESHOLD", 0);
           const gl = (tf.backend() as tf.MathBackendWebGL).getGPGPUContext().gl;
           setLogs((prev) => [
             ...prev,
@@ -187,7 +197,7 @@ export default function TrainingPage() {
 
           setLogs((prev) => [
             ...prev,
-            `Epoch ${epoch + 1}: loss=${loss}, acc=${acc}`,
+            `Epoch ${epoch}: loss=${loss}, acc=${acc}`,
           ]);
 
           setProgress({
