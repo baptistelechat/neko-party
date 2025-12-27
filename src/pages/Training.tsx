@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { Trainer, TrainingConfig } from "@/modules/training/Trainer";
 import {
   AlertDialog,
@@ -12,7 +13,15 @@ import {
 } from "@/ui/alert-dialog";
 import { Button } from "@/ui/button";
 import * as tf from "@tensorflow/tfjs";
-import { Download, Loader2, Play, Square, Upload } from "lucide-react";
+import {
+  Download,
+  Loader2,
+  Package,
+  Play,
+  Square,
+  Timer,
+  Upload,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 export default function TrainingPage() {
@@ -49,6 +58,49 @@ export default function TrainingPage() {
     }
   };
 
+  const loadDefaultDataset = async () => {
+    try {
+      setLogs((prev) => [
+        ...prev,
+        "Tentative de chargement du dataset par défaut...",
+      ]);
+
+      // 1. Fetch Manifest
+      const manifestRes = await fetch("/dataset/manifest.json");
+      if (!manifestRes.ok) {
+        throw new Error("Manifest non trouvé (public/dataset/manifest.json)");
+      }
+      const filenames: string[] = await manifestRes.json();
+      setLogs((prev) => [
+        ...prev,
+        `Manifest chargé: ${filenames.length} fichiers trouvés.`,
+      ]);
+
+      // 2. Fetch all ZIPs
+      const loadedFiles: File[] = [];
+      for (const filename of filenames) {
+        setLogs((prev) => [...prev, `Chargement de ${filename}...`]);
+        const response = await fetch(`/dataset/${filename}`);
+        if (!response.ok) {
+          setLogs((prev) => [...prev, `Erreur chargement ${filename}`]);
+          continue;
+        }
+        const blob = await response.blob();
+        const file = new File([blob], filename, { type: "application/zip" });
+        loadedFiles.push(file);
+      }
+
+      setFiles(loadedFiles);
+      setLogs((prev) => [
+        ...prev,
+        `Dataset complet chargé: ${loadedFiles.length} fichiers ZIP.`,
+      ]);
+    } catch (e) {
+      console.error(e);
+      setLogs((prev) => [...prev, `Erreur chargement défaut: ${e}`]);
+    }
+  };
+
   const handleStopTraining = () => {
     trainerRef.current.stop();
     setLogs((prev) => [...prev, "Stopping training..."]);
@@ -67,7 +119,7 @@ export default function TrainingPage() {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
-    let data: { images: Blob[]; labels: number[] } | null = null;
+    let data: { xs: tf.Tensor4D; ys: tf.Tensor2D } | null = null;
 
     try {
       setLogs((prev) => [...prev, "Loading dataset from ZIPs..."]);
@@ -77,14 +129,13 @@ export default function TrainingPage() {
 
       setLogs((prev) => [
         ...prev,
-        `Dataset loaded: ${data?.images.length} samples.`,
+        `Dataset loaded: ${data?.xs.shape[0]} samples.`,
       ]);
 
       // 2. Configure Training
       const config: TrainingConfig = {
         epochs: 20,
         batchSize: 16,
-        validationSplit: 0.2,
       };
 
       // 3. Train
@@ -126,13 +177,25 @@ export default function TrainingPage() {
       ]);
 
       if (data) {
+        setLogs((prev) => [
+          ...prev,
+          `Starting training with ${data?.xs.shape[0]} samples...`,
+        ]);
         await trainerRef.current.train(data, config, (epoch, logs) => {
+          const loss = logs?.loss ? logs.loss.toFixed(4) : "0.0000";
+          const acc = logs?.acc ? logs.acc.toFixed(4) : "0.0000";
+
+          setLogs((prev) => [
+            ...prev,
+            `Epoch ${epoch + 1}: loss=${loss}, acc=${acc}`,
+          ]);
+
           setProgress({
             epoch,
             loss: logs?.loss || 0,
             acc: logs?.acc || 0,
-            val_loss: logs?.val_loss || 0,
-            val_acc: logs?.val_acc || 0,
+            val_loss: 0,
+            val_acc: 0,
           });
         });
       }
@@ -146,8 +209,11 @@ export default function TrainingPage() {
       setIsTraining(false);
       if (timerRef.current) clearInterval(timerRef.current);
 
-      // Cleanup blobs (optional, GC handles it usually but good to be explicit if needed)
-      // Blobs are not tensors, so no manual dispose needed.
+      // Cleanup Tensors
+      if (data) {
+        data.xs.dispose();
+        data.ys.dispose();
+      }
 
       // Final cleanup check
       const mem = tf.memory();
@@ -175,6 +241,11 @@ export default function TrainingPage() {
       <div className="bg-zinc-800 p-4 rounded-lg border border-zinc-700">
         <h2 className="font-bold mb-4">1. Charger le Dataset (ZIPs)</h2>
         <div className="flex gap-4 items-center">
+          <Button variant="secondary" onClick={loadDefaultDataset}>
+            <Package className="mr-2 h-4 w-4" />
+            Charger le dataset existant
+          </Button>
+
           <Button variant="secondary" className="relative">
             <Upload className="mr-2 h-4 w-4" />
             Sélectionner ZIPs
@@ -186,6 +257,7 @@ export default function TrainingPage() {
               className="absolute inset-0 opacity-0 cursor-pointer"
             />
           </Button>
+
           <span className="text-zinc-400">
             {files.length} fichiers sélectionnés
           </span>
@@ -247,24 +319,23 @@ export default function TrainingPage() {
             </div>
           )}
 
-          {isTraining && (
-            <div className="flex gap-4 text-sm font-mono ml-4">
-              <span className="text-zinc-400">⏱️ {elapsedTime}s</span>
-              <span className="text-yellow-400">Epoch: {progress.epoch}</span>
-              <span className="text-red-400">
-                Loss: {progress.loss.toFixed(4)}
-              </span>
-              <span className="text-green-400">
-                Acc: {(progress.acc * 100).toFixed(1)}%
-              </span>
-              <span className="text-orange-400">
-                Val Loss: {progress.val_loss.toFixed(4)}
-              </span>
-              <span className="text-blue-400">
-                Val Acc: {(progress.val_acc * 100).toFixed(1)}%
-              </span>
-            </div>
-          )}
+          <div
+            className={cn(
+              "flex gap-4 text-sm font-mono ml-4",
+              !isTraining && "brightness-50"
+            )}
+          >
+            <span className="text-zinc-400 flex gap-2 items-center justify-center">
+              <Timer className="size-4" /> {elapsedTime}s
+            </span>
+            <span className="text-yellow-400">Epoch: {progress.epoch}</span>
+            <span className="text-red-400">
+              Loss: {progress.loss.toFixed(4)}
+            </span>
+            <span className="text-green-400">
+              Acc: {(progress.acc * 100).toFixed(1)}%
+            </span>
+          </div>
         </div>
 
         {/* Logs Console */}

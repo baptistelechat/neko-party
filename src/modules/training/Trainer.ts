@@ -4,7 +4,6 @@ import JSZip from "jszip";
 export interface TrainingConfig {
   epochs: number;
   batchSize: number;
-  validationSplit: number;
 }
 
 export class Trainer {
@@ -115,13 +114,13 @@ export class Trainer {
 
   /**
    * Loads dataset from ZIP files (containing /crops images)
-   * Returns list of Blobs and labels to keep memory low before training
+   * Returns Tensors directly (simplest robust method for PC training)
    */
   public async loadDatasetFromZips(
     zipFiles: File[]
-  ): Promise<{ images: Blob[]; labels: number[] }> {
+  ): Promise<{ xs: tf.Tensor4D; ys: tf.Tensor2D }> {
     this.stopRequested = false;
-    const images: Blob[] = [];
+    const images: tf.Tensor3D[] = [];
     const labels: number[] = [];
 
     for (const zipFile of zipFiles) {
@@ -144,16 +143,28 @@ export class Trainer {
           const labelIndex = this.labels.indexOf(labelStr);
 
           if (labelIndex !== -1) {
-            // Store Blob instead of Tensor
+            // Load image as Blob -> Bitmap -> Tensor
             const blob = await zip.files[filename].async("blob");
-            images.push(blob);
+            const imgBitmap = await createImageBitmap(blob);
+
+            const tensor = tf.tidy(() => {
+              return tf.browser
+                .fromPixels(imgBitmap)
+                .resizeNearestNeighbor([224, 224]) // Ensure size
+                .toFloat()
+                .div(tf.scalar(255)) as tf.Tensor3D;
+            });
+
+            images.push(tensor);
             labels.push(labelIndex);
+            imgBitmap.close(); // Clean up bitmap
           }
         }
       }
     }
 
     if (this.stopRequested) {
+      images.forEach((t) => t.dispose());
       throw new Error("Training stopped by user during data loading.");
     }
 
@@ -161,81 +172,24 @@ export class Trainer {
       throw new Error("No valid training data found in ZIPs.");
     }
 
-    return { images, labels };
-  }
+    // Stack all images into a single batch tensor
+    const xs = tf.stack(images) as tf.Tensor4D;
+    const ys = tf.oneHot(
+      tf.tensor1d(labels, "int32"),
+      this.labels.length
+    ) as tf.Tensor2D;
 
-  /**
-   * Creates a dataset iterator that loads images on demand
-   */
-  private createDataset(
-    images: Blob[],
-    labels: number[],
-    batchSize: number
-  ): tf.data.Dataset<tf.TensorContainer> {
-    const indices = tf.util.createShuffledIndices(images.length);
-    const numBatches = Math.ceil(images.length / batchSize);
-    const classLabels = this.labels;
+    // Dispose individual tensors now that they are stacked
+    images.forEach((t) => t.dispose());
 
-    // Generator function that yields batches
-    const generator = async function* () {
-      for (let i = 0; i < numBatches; i++) {
-        const start = i * batchSize;
-        const end = Math.min(start + batchSize, images.length);
-        const batchIndices = indices.slice(start, end);
-
-        const batchImages: tf.Tensor3D[] = [];
-        const batchLabels: number[] = [];
-
-        try {
-          // Load batch images
-          await Promise.all(
-            Array.from(batchIndices).map(async (idx) => {
-              const imgBitmap = await createImageBitmap(images[idx as number], {
-                resizeWidth: 224,
-                resizeHeight: 224,
-                resizeQuality: "medium",
-              });
-
-              const tensor = tf.tidy(() => {
-                return tf.browser
-                  .fromPixels(imgBitmap)
-                  .toFloat()
-                  .div(tf.scalar(255)) as tf.Tensor3D;
-              });
-
-              imgBitmap.close();
-              batchImages.push(tensor);
-              batchLabels.push(labels[idx as number]);
-            })
-          );
-
-          // Create batch tensors
-          const xs = tf.stack(batchImages) as tf.Tensor4D;
-          const ys = tf.oneHot(
-            tf.tensor1d(batchLabels, "int32"),
-            classLabels.length
-          ) as tf.Tensor2D;
-
-          // Dispose individual image tensors (stack has a copy)
-          batchImages.forEach((t) => t.dispose());
-
-          yield { xs, ys };
-        } catch (error) {
-          console.error("Error in dataset generator:", error);
-          // Cleanup on error
-          batchImages.forEach((t) => !t.isDisposed && t.dispose());
-        }
-      }
-    };
-
-    return tf.data.generator(generator);
+    return { xs, ys };
   }
 
   /**
    * Trains the model using the provided dataset.
    */
   public async train(
-    data: { images: Blob[]; labels: number[] },
+    data: { xs: tf.Tensor4D; ys: tf.Tensor2D },
     config: TrainingConfig,
     onEpochEnd?: (epoch: number, logs: tf.Logs | undefined) => void
   ) {
@@ -245,60 +199,23 @@ export class Trainer {
 
     if (!this.model) throw new Error("Model creation failed");
 
-    console.log(`Starting training with ${data.images.length} samples...`);
+    const numSamples = data.xs.shape[0];
+    console.log(`Starting training with ${numSamples} samples...`);
 
-    // Manual validation split since fitDataset doesn't support validationSplit directly easily
-    // We will use all data for training for now to simplify or implement manual split if needed
-    // For mobile stability, we'll just train on everything or implement a simple split
-
-    // Simple split for validation
-    const numVal = Math.floor(data.images.length * config.validationSplit);
-    const numTrain = data.images.length - numVal;
-
-    // Shuffle all data first
-    const indices = tf.util.createShuffledIndices(data.images.length);
-    const trainIndices = indices.slice(0, numTrain);
-    const valIndices = indices.slice(numTrain);
-
-    const trainBlobs = Array.from(trainIndices).map((i) => data.images[i]);
-    const trainLabels = Array.from(trainIndices).map((i) => data.labels[i]);
-
-    const valBlobs = Array.from(valIndices).map((i) => data.images[i]);
-    const valLabels = Array.from(valIndices).map((i) => data.labels[i]);
-
-    const trainDataset = this.createDataset(
-      trainBlobs,
-      trainLabels,
-      config.batchSize
-    );
-    const valDataset = this.createDataset(
-      valBlobs,
-      valLabels,
-      config.batchSize
-    );
-
-    const history = await this.model.fitDataset(trainDataset, {
+    const history = await this.model.fit(data.xs, data.ys, {
       epochs: config.epochs,
-      batchesPerEpoch: Math.ceil(numTrain / config.batchSize),
-      validationData: valDataset,
-      validationBatches: Math.ceil(numVal / config.batchSize),
-      callbacks: [
-        {
-          onEpochEnd: (epoch: number, logs: tf.Logs | undefined) => {
-            console.log(
-              `Epoch ${epoch + 1}: loss=${logs?.loss.toFixed(
-                4
-              )}, acc=${logs?.acc.toFixed(
-                4
-              )}, val_loss=${logs?.val_loss?.toFixed(
-                4
-              )}, val_acc=${logs?.val_acc?.toFixed(4)}`
-            );
-            if (onEpochEnd) onEpochEnd(epoch + 1, logs);
-          },
+      batchSize: config.batchSize,
+      shuffle: true,
+      callbacks: {
+        onEpochEnd: async (epoch, logs) => {
+          const loss = logs?.loss ? logs.loss.toFixed(4) : "0.0000";
+          const acc = logs?.acc ? logs.acc.toFixed(4) : "0.0000";
+          console.log(`Epoch ${epoch + 1}: loss=${loss}, acc=${acc}`);
+          
+          await tf.nextFrame(); // Unblock UI
+          if (onEpochEnd) onEpochEnd(epoch + 1, logs);
         },
-        tf.callbacks.earlyStopping({ monitor: "val_loss", patience: 3 }),
-      ],
+      },
     });
 
     return history;
