@@ -285,11 +285,17 @@ export class Trainer {
         try {
           const res = await this.model.trainOnBatch(augmentedXs, batchYs);
 
+          // Helper to safely extract value from Scalar or number
+          const extractVal = (val: number | tf.Scalar): number => {
+            if (typeof val === "number") return val;
+            return val.dataSync()[0];
+          };
+
           if (Array.isArray(res)) {
-            lossVal = res[0];
-            accVal = res[1];
+            lossVal = extractVal(res[0]);
+            accVal = extractVal(res[1]);
           } else {
-            lossVal = (res as tf.Scalar).dataSync()[0];
+            lossVal = extractVal(res as number | tf.Scalar);
           }
         } finally {
           // 4. Cleanup Training Tensors
