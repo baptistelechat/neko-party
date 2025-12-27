@@ -3,6 +3,7 @@ import { DatasetService } from "@/modules/dataset/DatasetService";
 import { CardClassifierService } from "@/modules/vision/CardClassifierService";
 import { OCRService } from "@/modules/vision/OCRService";
 import { Button } from "@/ui/button";
+import * as tf from "@tensorflow/tfjs";
 import {
   ArrowLeft,
   Cat,
@@ -89,9 +90,9 @@ export default function Scan() {
   );
 
   // Dataset Export Refs
-  const lastCaptureRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const targetBoxRef = useRef<HTMLDivElement>(null);
+  const processingCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const datasetService = DatasetService.getInstance();
   const [sessionCount, setSessionCount] = useState(0);
@@ -99,6 +100,24 @@ export default function Scan() {
   const [showGallery, setShowGallery] = useState(false);
 
   const [isModelLoading, setIsModelLoading] = useState(true);
+
+  // WebGL Optimization for Mobile
+  useEffect(() => {
+    const initBackend = async () => {
+      try {
+        await tf.setBackend("webgl");
+        await tf.ready();
+        const backend = tf.getBackend();
+        if (backend === "webgl") {
+          console.log("WebGL Backend initialized for Scan");
+          tf.env().set("WEBGL_DELETE_TEXTURE_THRESHOLD", 0);
+        }
+      } catch (e) {
+        console.warn("WebGL init failed in Scan", e);
+      }
+    };
+    initBackend();
+  }, []);
 
   useEffect(() => {
     // Init Classifier
@@ -287,8 +306,8 @@ export default function Scan() {
     if (!isDebugMode && !isTrainingMode) return;
 
     const now = Date.now();
-    // Process every 100ms
-    if (now - lastProcessTime.current < 100 || isProcessingFrame.current) {
+    // Process every 200ms (throttled from 100ms to reduce mobile load)
+    if (now - lastProcessTime.current < 200 || isProcessingFrame.current) {
       return;
     }
 
@@ -303,14 +322,6 @@ export default function Scan() {
     try {
       // Training Mode
       if (isTrainingMode) {
-        // No auto processing, waiting for user click "Add Example"
-        // Actually, we could show real-time prediction if we wanted, but let's keep it simple
-        // const result = await classifierRef.current.predict(video);
-        // if (result && result.confidences[result.label] > 0.8) {
-        //   setPredictionLabel(result.label);
-        // } else {
-        //   setPredictionLabel("?");
-        // }
         return;
       }
 
@@ -336,13 +347,20 @@ export default function Scan() {
 
         // 2. Fallback to OCR if ML is unsure (or if CNN not loaded yet)
         if (workerRef.current) {
-          const canvas = document.createElement("canvas");
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
+          // Reuse canvas
+          if (!processingCanvasRef.current) {
+            processingCanvasRef.current = document.createElement("canvas");
+          }
+          const canvas = processingCanvasRef.current;
+          if (canvas.width !== video.videoWidth)
+            canvas.width = video.videoWidth;
+          if (canvas.height !== video.videoHeight)
+            canvas.height = video.videoHeight;
+
           const ctx = canvas.getContext("2d");
           if (ctx) {
             ctx.drawImage(video, 0, 0);
-            const imageSrc = canvas.toDataURL("image/jpeg");
+            const imageSrc = canvas.toDataURL("image/jpeg", 0.8); // Reduce quality to 0.8 for speed
 
             let result = await OCRService.recognizeWithWorkerDetailed(
               workerRef.current,
@@ -350,9 +368,7 @@ export default function Scan() {
               { invert: false }
             );
             let usedInverted = false;
-            let finalImage = await OCRService.preprocessImage(imageSrc, {
-              invert: false,
-            });
+            // let finalImage = null; // Don't process image for UI every frame to save memory
 
             if (result.confidence < 70 || result.number === null) {
               const resultInverted =
@@ -369,13 +385,12 @@ export default function Scan() {
               ) {
                 result = resultInverted;
                 usedInverted = true;
-                finalImage = await OCRService.preprocessImage(imageSrc, {
-                  invert: true,
-                });
               }
             }
 
-            setDebugImage(finalImage);
+            // Update debug image every frame but use a throttled/lower quality one if needed
+            // For now, let's restore it as user requested it back
+            setDebugImage(imageSrc);
             setDebugInverted(usedInverted);
             setDebugRawText(result.text);
             setDebugConfidence(Math.round(result.confidence));

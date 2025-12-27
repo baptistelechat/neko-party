@@ -1,6 +1,5 @@
 import JSZip from 'jszip';
 import { DatasetAnnotation, DatasetEntry, BBox } from './types';
-import { CardClassifierService } from '../vision/CardClassifierService';
 
 export class DatasetService {
   private static instance: DatasetService;

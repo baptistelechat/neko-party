@@ -56,18 +56,19 @@ export class CardClassifierService {
     // A. Try CNN First
     if (this.cnnModel) {
         try {
-            const tensor = tf.browser.fromPixels(element)
-                .resizeNearestNeighbor([224, 224])
-                .toFloat()
-                .div(tf.scalar(255))
-                .expandDims();
+            const prediction = tf.tidy(() => {
+                const tensor = tf.browser.fromPixels(element)
+                    .resizeNearestNeighbor([224, 224])
+                    .toFloat()
+                    .div(tf.scalar(255))
+                    .expandDims();
+                return this.cnnModel!.predict(tensor) as tf.Tensor;
+            });
 
-            const prediction = this.cnnModel.predict(tensor) as tf.Tensor;
             const probabilities = await prediction.data();
             const maxScore = Math.max(...Array.from(probabilities));
             const classIndex = Array.from(probabilities).indexOf(maxScore);
             
-            tensor.dispose();
             prediction.dispose();
 
             if (maxScore > 0.4) { // Confidence threshold (lowered for testing)
@@ -84,7 +85,7 @@ export class CardClassifierService {
 
     // B. Fallback to KNN
     if (this.knnClassifier && this.knnClassifier.getNumClasses() > 0 && this.mobilenet) {
-      const activation = this.mobilenet.infer(element, 'conv_preds');
+      const activation = this.mobilenet.infer(element, true);
       const result = await this.knnClassifier.predictClass(activation);
       activation.dispose();
 
@@ -104,7 +105,7 @@ export class CardClassifierService {
 
   public async addExample(element: HTMLVideoElement | HTMLCanvasElement, label: string): Promise<void> {
     if (!this.mobilenet) return;
-    const activation = this.mobilenet.infer(element, 'conv_preds');
+    const activation = this.mobilenet.infer(element, true);
     this.knnClassifier.addExample(activation, label);
     activation.dispose();
   }
@@ -119,7 +120,7 @@ export class CardClassifierService {
     }
   }
 
-  public async getClassifierDatasetJSON(label: string): Promise<string | null> {
+  public async getClassifierDatasetJSON(): Promise<string | null> {
     return null; // Deprecated
   }
 }
