@@ -7,14 +7,17 @@ import { Toggle } from "@/ui/toggle";
 import * as tf from "@tensorflow/tfjs";
 import {
   ArrowLeft,
+  ArrowLeftIcon,
   Bot,
   Cat,
   Check,
   Download,
+  FolderArchive,
   GraduationCap,
   Play,
   RefreshCw,
   RotateCcw,
+  Send,
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -305,6 +308,42 @@ export default function Scan() {
     }
   };
 
+  const performUpload = async () => {
+    try {
+      const { blob, filename } = await datasetService.generateSessionZip(
+        selectedLabel
+      );
+
+      const response = await fetch(
+        `/upload-dataset?filename=${encodeURIComponent(filename)}`,
+        {
+          method: "POST",
+          body: blob,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log("Upload success:", result);
+
+      if (
+        confirm(
+          "Dataset envoyé au PC avec succès ! Effacer la session en cours ?"
+        )
+      ) {
+        datasetService.clearSession();
+        setSessionCount(0);
+        setSessionEntries([]);
+      }
+    } catch (e) {
+      console.error("Upload failed", e);
+      alert("Erreur lors de l'envoi du dataset au PC.");
+    }
+  };
+
   const handleFrame = async (video: HTMLVideoElement) => {
     if (!isDebugMode && !isTrainingMode) return;
 
@@ -477,41 +516,55 @@ export default function Scan() {
             </Button>
           </div>
 
-          <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-2">
-            {sessionEntries.map((entry, idx) => {
-              const url = URL.createObjectURL(entry.crop);
-              return (
-                <div
-                  key={entry.annotation.id}
-                  className="relative aspect-[2/3] bg-zinc-800 rounded-lg overflow-hidden border border-zinc-700"
-                >
-                  <img src={url} className="w-full h-full object-cover" />
-                  <div className="absolute top-1 right-1">
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="h-6 w-6 rounded-full"
-                      onClick={() => handleRemoveEntry(idx)}
-                    >
-                      <span className="text-xs">✕</span>
-                    </Button>
+          <div className="flex-1 overflow-y-auto min-h-0 pr-1">
+            <div className="grid grid-cols-3 gap-2 pb-2">
+              {sessionEntries.map((entry, idx) => {
+                const url = URL.createObjectURL(entry.crop);
+                return (
+                  <div
+                    key={entry.annotation.id}
+                    className="relative aspect-[2/3] bg-zinc-800 rounded-lg overflow-hidden border border-zinc-700"
+                  >
+                    <img src={url} className="w-full h-full object-cover" />
+                    <div className="absolute top-1 right-1">
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="h-6 w-6 rounded-full"
+                        onClick={() => handleRemoveEntry(idx)}
+                      >
+                        <span className="text-xs">✕</span>
+                      </Button>
+                    </div>
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-[10px] text-center text-white py-1">
+                      #{idx + 1}
+                    </div>
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-[10px] text-center text-white py-1">
-                    #{idx + 1}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
 
           <div className="mt-4 pt-4 border-t border-zinc-800 flex gap-4">
             <Button
-              className="flex-1"
               variant="outline"
               onClick={() => setShowGallery(false)}
+              size="icon"
             >
-              Retour au scan
+              <ArrowLeftIcon />
             </Button>
+            {import.meta.env.DEV && (
+              <Button
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
+                onClick={() => {
+                  setShowGallery(false);
+                  performUpload();
+                }}
+              >
+                <Send />
+                Envoyer
+              </Button>
+            )}
             <Button
               className="flex-1 bg-green-600 hover:bg-green-700"
               onClick={() => {
@@ -519,14 +572,12 @@ export default function Scan() {
                 performDownload();
               }}
             >
-              <Download className="mr-2 h-4 w-4" />
-              Télécharger le ZIP
+              <FolderArchive />
+              Télécharger
             </Button>
           </div>
         </div>
       )}
-
-      {/* Hidden File Input for Import - REMOVED */}
 
       <div className="absolute top-4 left-4 z-10 flex gap-2">
         <Button

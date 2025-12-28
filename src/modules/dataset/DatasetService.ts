@@ -126,9 +126,9 @@ export class DatasetService {
   }
 
   /**
-   * Exports the current session as a ZIP file.
+   * Generates the ZIP blob for the current session.
    */
-  public async exportSessionZip(sessionLabel: string): Promise<void> {
+  public async generateSessionZip(sessionLabel: string): Promise<{ blob: Blob, filename: string }> {
     if (this.sessionEntries.length === 0) {
       throw new Error("Session is empty");
     }
@@ -164,12 +164,20 @@ export class DatasetService {
 
     // Generate ZIP blob
     const zipBlob = await zip.generateAsync({ type: 'blob' });
+    return { blob: zipBlob, filename: sessionZipName };
+  }
+
+  /**
+   * Exports the current session as a ZIP file.
+   */
+  public async exportSessionZip(sessionLabel: string): Promise<void> {
+    const { blob, filename } = await this.generateSessionZip(sessionLabel);
 
     // Trigger Download
-    const downloadUrl = URL.createObjectURL(zipBlob);
+    const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = sessionZipName;
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
