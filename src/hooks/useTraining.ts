@@ -10,10 +10,18 @@ export interface TrainingProgress {
   val_acc: number;
 }
 
+export interface DatasetStat {
+  Class: string;
+  Total: number;
+  Train: number;
+  Val: number;
+}
+
 export const useTraining = () => {
   const [files, setFiles] = useState<File[]>([]);
   const [isTraining, setIsTraining] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
+  const [datasetStats, setDatasetStats] = useState<DatasetStat[]>([]);
   const [progress, setProgress] = useState<TrainingProgress>({
     epoch: 0,
     loss: 0,
@@ -109,13 +117,20 @@ export const useTraining = () => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
-    let data: { xs: tf.Tensor4D; ys: tf.Tensor2D } | null = null;
+    let trainData: { xs: tf.Tensor4D; ys: tf.Tensor2D } | null = null;
+    let valData: { xs: tf.Tensor4D; ys: tf.Tensor2D } | null = null;
 
     try {
+      // Initialize Backend
+      await tf.setBackend("webgl");
+      await tf.ready();
+      const backend = tf.getBackend();
+      setLogs((prev) => [...prev, `TF.js Backend: ${backend}`]);
+
       setLogs((prev) => [...prev, `Loading: ${files.length} source images...`]);
 
-      // 1. Load Data
-      data = await trainerRef.current.loadDatasetFromZips(
+      // 1. Load Data (Stratified Split)
+      const splitData = await trainerRef.current.loadDatasetFromZips(
         files,
         (count, total) => {
           setLogs((prev) => {
@@ -129,15 +144,20 @@ export const useTraining = () => {
         }
       );
 
+      trainData = splitData.train;
+      valData = splitData.val;
+      if (splitData.stats) {
+        setDatasetStats(splitData.stats);
+      }
+
       setLogs((prev) => [
         ...prev,
-        `Dataset ready: ${data?.xs.shape[0]} samples.`,
-        "Starting training... (This may take a while)",
+        `Dataset ready: ${trainData?.xs.shape[0]} train, ${valData?.xs.shape[0]} val samples.`,
       ]);
 
       // 2. Configure Training
       const config: TrainingConfig = {
-        epochs: 50, // Increased because Early Stopping will handle the stop
+        epochs: 50,
         batchSize: 8,
         earlyStopping: {
           enabled: true,
@@ -149,78 +169,35 @@ export const useTraining = () => {
       // 3. Train
       setLogs((prev) => [
         ...prev,
-        "Starting training... (This may take a while)",
+        `Starting training... (Monitors val_loss)`,
       ]);
 
-      // Initialize Backend for Mobile
-      try {
-        await tf.setBackend("webgl");
-        await tf.ready();
-        const backend = tf.getBackend();
-        setLogs((prev) => [...prev, `TF.js Backend initialized: ${backend}`]);
-
-        if (backend === "webgl") {
-          const gl = (tf.backend() as tf.MathBackendWebGL).getGPGPUContext().gl;
-          setLogs((prev) => [
-            ...prev,
-            `WebGL Info: ${gl.getParameter(gl.RENDERER)}`,
-          ]);
+      await trainerRef.current.train(
+        trainData!,
+        valData!,
+        config,
+        (epoch, logs) => {
+          // Update UI
+          const currentProgress: TrainingProgress = {
+            epoch,
+            loss: logs?.loss || 0,
+            acc: logs?.acc || 0,
+            val_loss: logs?.val_loss || 0,
+            val_acc: logs?.val_acc || 0,
+          };
+          setProgress(currentProgress);
+          setHistory((prev) => [...prev, currentProgress]);
+        },
+        (msg) => {
+          setLogs((prev) => [...prev, msg]);
         }
-      } catch (e) {
-        setLogs((prev) => [
-          ...prev,
-          `Warning: WebGL init failed, falling back. Error: ${e}`,
-        ]);
-      }
+      );
 
-      // Log memory before training
-      const mem = tf.memory();
-      setLogs((prev) => [
-        ...prev,
-        `Memory: ${Math.round(mem.numBytes / 1024 / 1024)} MB (${
-          mem.numTensors
-        } tensors)`,
-      ]);
-
-      if (data) {
-        setLogs((prev) => [
-          ...prev,
-          `Starting training with ${data?.xs.shape[0]} samples...`,
-        ]);
-        await trainerRef.current.train(
-          data,
-          config,
-          (epoch, logs) => {
-            const loss = logs?.loss ? logs.loss.toFixed(4) : "0.0000";
-            const acc = logs?.acc ? logs.acc.toFixed(4) : "0.0000";
-
-            setLogs((prev) => [
-              ...prev,
-              `Epoch ${epoch}: loss=${loss}, acc=${acc}`,
-            ]);
-
-            const newProgress = {
-              epoch,
-              loss: logs?.loss || 0,
-              acc: logs?.acc || 0,
-              val_loss: 0,
-              val_acc: 0,
-            };
-
-            setProgress(newProgress);
-            setHistory((prev) => [...prev, newProgress]);
-          },
-          (message) => {
-            setLogs((prev) => [...prev, message]);
-          }
-        );
-      }
-
-      setLogs((prev) => [...prev, "Training completed!"]);
       setIsModelReady(true);
-    } catch (err) {
+      setLogs((prev) => [...prev, "Training Complete! ✅"]);
+    } catch (err: any) {
       console.error(err);
-      setLogs((prev) => [...prev, `Error: ${err}`]);
+      setLogs((prev) => [...prev, `Error: ${err.message}`]);
     } finally {
       setIsTraining(false);
       if (timerRef.current) {
@@ -229,9 +206,13 @@ export const useTraining = () => {
       }
 
       // Cleanup Tensors
-      if (data) {
-        data.xs.dispose();
-        data.ys.dispose();
+      if (trainData) {
+        trainData.xs.dispose();
+        trainData.ys.dispose();
+      }
+      if (valData) {
+        valData.xs.dispose();
+        valData.ys.dispose();
       }
 
       // Final cleanup check
@@ -254,6 +235,7 @@ export const useTraining = () => {
     files,
     isTraining,
     logs,
+    datasetStats,
     progress,
     history,
     elapsedTime,

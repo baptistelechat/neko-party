@@ -30,6 +30,7 @@ export default function TrainingPage() {
     files,
     isTraining,
     logs,
+    datasetStats,
     progress,
     history,
     elapsedTime,
@@ -147,32 +148,87 @@ export default function TrainingPage() {
             </span>
             <span className="text-yellow-400">Epoch: {progress.epoch}</span>
             <span className="text-red-400">
-              Loss: {progress.loss.toFixed(4)}
+              Loss: {progress.loss.toFixed(4)}{" "}
+              <span className="text-red-300 opacity-70">
+                (Validation: {progress.val_loss.toFixed(4)})
+              </span>
             </span>
             <span className="text-green-400">
-              Acc: {(progress.acc * 100).toFixed(1)}%
+              Accuracy: {(progress.acc * 100).toFixed(1)}%{" "}
+              <span className="text-green-300 opacity-70">
+                (Validation: {(progress.val_acc * 100).toFixed(1)}%)
+              </span>
             </span>
           </div>
         </div>
 
-        {/* Logs Console */}
-        <div className="mt-4 bg-zinc-950 p-3 rounded-lg h-64 overflow-y-auto font-mono text-xs border border-zinc-800 shadow-inner">
-          {logs.map((log, i) => {
-            let colorClass = "text-zinc-400"; // Default
-            if (log.includes("loss=")) colorClass = "text-blue-400";
-            if (log.includes("⚠️"))
-              colorClass = "text-yellow-500 font-semibold";
-            if (log.includes("🛑")) colorClass = "text-red-500 font-bold";
-            if (log.includes("♻️")) colorClass = "text-green-500 font-bold";
-            if (log.includes("Training completed"))
-              colorClass = "text-green-400 font-bold";
+        {/* Logs & Stats Grid */}
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 h-80">
+          {/* Logs Console */}
+          <div className="lg:col-span-2 bg-zinc-950 p-3 rounded-lg overflow-y-auto font-mono text-xs border border-zinc-800 shadow-inner">
+            {logs.map((log, i) => {
+              let colorClass = "text-zinc-400"; // Default
+              if (log.includes("loss=")) colorClass = "text-blue-400";
+              if (log.includes("⚠️"))
+                colorClass = "text-yellow-500 font-semibold";
+              if (log.includes("🛑")) colorClass = "text-red-500 font-bold";
+              if (log.includes("♻️")) colorClass = "text-green-500 font-bold";
+              if (log.includes("Training completed"))
+                colorClass = "text-green-400 font-bold";
 
-            return (
-              <div key={i} className={`${colorClass} mb-1`}>
-                {log}
-              </div>
-            );
-          })}
+              return (
+                <div key={i} className={`${colorClass} mb-1`}>
+                  {log}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Distribution Stats Table */}
+          <div className="bg-zinc-950 p-0 rounded-lg overflow-hidden border border-zinc-800 shadow-inner flex flex-col">
+            <div className="bg-zinc-900 p-2 text-xs font-bold text-zinc-300 border-b border-zinc-800">
+              Dataset Distribution (Stratified)
+            </div>
+            <div className="overflow-y-auto flex-1 p-2">
+              {datasetStats.length === 0 ? (
+                <div className="text-zinc-500 text-center italic mt-10">
+                  Waiting for data...
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="text-zinc-500 border-b border-zinc-800">
+                      <th className="py-1 px-2">Class</th>
+                      <th className="py-1 px-2 text-right">Total</th>
+                      <th className="py-1 px-2 text-right">Train</th>
+                      <th className="py-1 px-2 text-right">Validation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {datasetStats.map((stat, i) => (
+                      <tr
+                        key={i}
+                        className="border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors"
+                      >
+                        <td className="py-1 px-2 font-bold text-zinc-300">
+                          {stat.Class}
+                        </td>
+                        <td className="py-1 px-2 text-right text-zinc-400">
+                          {stat.Total}
+                        </td>
+                        <td className="py-1 px-2 text-right text-zinc-400">
+                          {stat.Train}
+                        </td>
+                        <td className="py-1 px-2 text-right text-zinc-400">
+                          {stat.Val}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Charts */}

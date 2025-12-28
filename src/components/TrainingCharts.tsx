@@ -15,7 +15,6 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/ui/chart";
-import { TrendingDown, TrendingUp } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 
 interface TrainingChartsProps {
@@ -24,36 +23,47 @@ interface TrainingChartsProps {
 
 const accuracyConfig = {
   acc: {
-    label: "Accuracy",
-    color: "hsl(var(--chart-2))",
+    label: "Train Accuracy",
+    color: "#4ade80", // Green 400
+  },
+  val_acc: {
+    label: "Validation Accuracy",
+    color: "#86efac", // Green 300
   },
 } satisfies ChartConfig;
 
 const lossConfig = {
   loss: {
-    label: "Loss",
-    color: "hsl(var(--chart-1))",
+    label: "Train Loss",
+    color: "#f87171", // Red 400
+  },
+  val_loss: {
+    label: "Validation Loss",
+    color: "#fca5a5", // Red 300
   },
 } satisfies ChartConfig;
 
 export function TrainingCharts({ data }: TrainingChartsProps) {
   const lastAcc = data.length > 0 ? data[data.length - 1].acc : 0;
+  const lastValAcc = data.length > 0 ? data[data.length - 1].val_acc : 0;
+
   const lastLoss = data.length > 0 ? data[data.length - 1].loss : 0;
+  const lastValLoss = data.length > 0 ? data[data.length - 1].val_loss : 0;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Accuracy Chart */}
       <Card className="bg-zinc-800 border-zinc-700 text-white">
         <CardHeader>
-          <CardTitle>Accuracy</CardTitle>
+          <CardTitle>Accuracy (Train vs Val)</CardTitle>
           <CardDescription className="text-zinc-400">
-            Training Accuracy over Epochs
+            Monitor for divergence (Overfitting if Train &gt; Val)
           </CardDescription>
         </CardHeader>
         <CardContent>
           <ChartContainer
             config={accuracyConfig}
-            className="aspect-auto h-[250px] w-full"
+            className="aspect-auto h-62.5 w-full"
           >
             <LineChart
               accessibilityLayer
@@ -75,27 +85,8 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
               <YAxis hide domain={[0, 1]} />
               <ChartTooltip
                 cursor={false}
-                formatter={(value) => (
-                  <>
-                    <div
-                      className="h-2.5 w-2.5 shrink-0 rounded-[2px] bg-[--color-bg]"
-                      style={
-                        {
-                          "--color-bg": "var(--color-acc)",
-                        } as React.CSSProperties
-                      }
-                    />
-                    <span className="text-muted-foreground">Accuracy</span>
-                    <span className="font-mono font-medium tabular-nums text-foreground ml-auto">
-                      {Number(value).toFixed(4)}
-                    </span>
-                  </>
-                )}
                 content={
-                  <ChartTooltipContent
-                    hideLabel
-                    className="bg-zinc-900 border-zinc-700 [&_.text-foreground]:text-white [&_.text-muted-foreground]:text-zinc-400"
-                  />
+                  <ChartTooltipContent className="bg-zinc-900 border-zinc-700 [&_.text-foreground]:text-white [&_.text-muted-foreground]:text-zinc-400" />
                 }
               />
               <Line
@@ -105,13 +96,27 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
                 strokeWidth={2}
                 dot={false}
               />
+              <Line
+                dataKey="val_acc"
+                type="monotone"
+                stroke="var(--color-val_acc)"
+                strokeWidth={2}
+                strokeDasharray="4 4"
+                dot={false}
+              />
             </LineChart>
           </ChartContainer>
         </CardContent>
         <CardFooter className="flex-col items-start gap-2 text-sm text-zinc-400">
-          <div className="flex gap-2 leading-none font-medium text-white">
-            Current Accuracy: {(lastAcc * 100).toFixed(1)}%{" "}
-            <TrendingUp className="h-4 w-4" />
+          <div className="flex gap-4 w-full">
+            <div className="flex gap-2 items-center">
+              <div className="w-3 h-3 rounded-full bg-green-400"></div>
+              Train: {(lastAcc * 100).toFixed(1)}%
+            </div>
+            <div className="flex gap-2 items-center text-green-300 opacity-70">
+              <div className="w-3 h-3 rounded-full border-2 border-green-300 border-dashed bg-transparent"></div>
+              Validation: {(lastValAcc * 100).toFixed(1)}%
+            </div>
           </div>
           <div className="leading-none">Higher is better</div>
         </CardFooter>
@@ -120,15 +125,15 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
       {/* Loss Chart */}
       <Card className="bg-zinc-800 border-zinc-700 text-white">
         <CardHeader>
-          <CardTitle>Loss</CardTitle>
+          <CardTitle>Loss (Train vs Val)</CardTitle>
           <CardDescription className="text-zinc-400">
-            Training Loss over Epochs
+            Validation Loss determines Early Stopping
           </CardDescription>
         </CardHeader>
         <CardContent>
           <ChartContainer
             config={lossConfig}
-            className="aspect-auto h-[250px] w-full"
+            className="aspect-auto h-62.5 w-full"
           >
             <LineChart
               accessibilityLayer
@@ -150,27 +155,8 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
               <YAxis hide />
               <ChartTooltip
                 cursor={false}
-                formatter={(value) => (
-                  <>
-                    <div
-                      className="h-2.5 w-2.5 shrink-0 rounded-[2px] bg-[--color-bg]"
-                      style={
-                        {
-                          "--color-bg": "var(--color-loss)",
-                        } as React.CSSProperties
-                      }
-                    />
-                    <span className="text-muted-foreground">Loss</span>
-                    <span className="font-mono font-medium tabular-nums text-foreground ml-auto">
-                      {Number(value).toFixed(4)}
-                    </span>
-                  </>
-                )}
                 content={
-                  <ChartTooltipContent
-                    hideLabel
-                    className="bg-zinc-900 border-zinc-700 [&_.text-foreground]:text-white [&_.text-muted-foreground]:text-zinc-400"
-                  />
+                  <ChartTooltipContent className="bg-zinc-900 border-zinc-700 [&_.text-foreground]:text-white [&_.text-muted-foreground]:text-zinc-400" />
                 }
               />
               <Line
@@ -180,13 +166,27 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
                 strokeWidth={2}
                 dot={false}
               />
+              <Line
+                dataKey="val_loss"
+                type="monotone"
+                stroke="var(--color-val_loss)"
+                strokeWidth={2}
+                strokeDasharray="4 4"
+                dot={false}
+              />
             </LineChart>
           </ChartContainer>
         </CardContent>
         <CardFooter className="flex-col items-start gap-2 text-sm text-zinc-400">
-          <div className="flex gap-2 leading-none font-medium text-white">
-            Current Loss: {lastLoss.toFixed(4)}{" "}
-            <TrendingDown className="h-4 w-4" />
+          <div className="flex gap-4 w-full">
+            <div className="flex gap-2 items-center">
+              <div className="w-3 h-3 rounded-full bg-red-400"></div>
+              Train: {lastLoss.toFixed(4)}
+            </div>
+            <div className="flex gap-2 items-center text-red-300 opacity-70">
+              <div className="w-3 h-3 rounded-full border-2 border-red-300 border-dashed bg-transparent"></div>
+              Validation: {lastValLoss.toFixed(4)}
+            </div>
           </div>
           <div className="leading-none">Lower is better</div>
         </CardFooter>

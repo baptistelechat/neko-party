@@ -15,6 +15,7 @@ export class Trainer {
   private model: tf.Sequential | null = null;
   private labels: string[] = [];
   private stopRequested: boolean = false;
+  private seed: number = 42; // Seed par défaut pour la reproductibilité
 
   constructor() {
     this.labels = [
@@ -115,16 +116,49 @@ export class Trainer {
   }
 
   /**
+   * Generates a pseudo-random number between 0 and 1 using a seed.
+   * Simple Linear Congruential Generator (LCG).
+   */
+  private seededRandom(): number {
+    const x = Math.sin(this.seed++) * 10000;
+    return x - Math.floor(x);
+  }
+
+  /**
+   * Shuffles an array in place using the seeded random generator.
+   */
+  private shuffleArray<T>(array: T[]): T[] {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(this.seededRandom() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+  }
+
+  /**
    * Loads dataset from ZIP files (containing /crops images)
-   * Returns Tensors directly (simplest robust method for PC training)
+   * Performs a STRATIFIED SPLIT (80% Train / 20% Val)
    */
   public async loadDatasetFromZips(
     zipFiles: File[],
     onProgress?: (count: number, total: number) => void
-  ): Promise<{ xs: tf.Tensor4D; ys: tf.Tensor2D }> {
+  ): Promise<{
+    train: { xs: tf.Tensor4D; ys: tf.Tensor2D };
+    val: { xs: tf.Tensor4D; ys: tf.Tensor2D };
+    stats: Array<{
+      Class: string;
+      Total: number;
+      Train: number;
+      Val: number;
+    }>;
+  }> {
     this.stopRequested = false;
-    const images: tf.Tensor3D[] = [];
-    const labels: number[] = [];
+    // Reset seed for reproducibility at each load
+    this.seed = 42;
+
+    // Temporary storage grouped by label index to ensure stratified split
+    const dataByLabel: { [labelIndex: number]: tf.Tensor3D[] } = {};
+    this.labels.forEach((_, i) => (dataByLabel[i] = []));
 
     let totalFiles = 0;
     const zipContents: Array<{ zip: JSZip; files: string[] }> = [];
@@ -175,8 +209,7 @@ export class Trainer {
                 .div(tf.scalar(255)) as tf.Tensor3D;
             });
 
-            images.push(tensor);
-            labels.push(labelIndex);
+            dataByLabel[labelIndex].push(tensor);
             imgBitmap.close(); // Clean up bitmap
           }
         }
@@ -184,25 +217,91 @@ export class Trainer {
     }
 
     if (this.stopRequested) {
-      images.forEach((t) => t.dispose());
+      // Dispose all tensors
+      Object.values(dataByLabel)
+        .flat()
+        .forEach((t) => t.dispose());
       throw new Error("Training stopped by user during data loading.");
     }
 
-    if (images.length === 0) {
-      throw new Error("No valid training data found in ZIPs.");
+    // --- STRATIFIED SPLIT ---
+    const trainImages: tf.Tensor3D[] = [];
+    const trainLabels: number[] = [];
+    const valImages: tf.Tensor3D[] = [];
+    const valLabels: number[] = [];
+    const stats: Array<{
+      Class: string;
+      Total: number;
+      Train: number;
+      Val: number;
+    }> = [];
+
+    console.group("📊 Dataset Distribution (Stratified Split)");
+    const statsTable = this.labels.map((label, i) => {
+      const total = dataByLabel[i].length;
+      // Calculate split count
+      const nVal = Math.floor(total * 0.2); // 20% validation
+
+      // Shuffle specifically this class's images
+      const shuffled = this.shuffleArray(dataByLabel[i]);
+
+      // Distribute
+      const valSet = shuffled.slice(0, nVal);
+      const trainSet = shuffled.slice(nVal);
+
+      valSet.forEach((t) => {
+        valImages.push(t);
+        valLabels.push(i);
+      });
+
+      trainSet.forEach((t) => {
+        trainImages.push(t);
+        trainLabels.push(i);
+      });
+
+      return {
+        Class: label,
+        Total: total,
+        Train: trainSet.length,
+        Val: valSet.length,
+      };
+    });
+
+    stats.push(...statsTable);
+    console.table(statsTable);
+    console.groupEnd();
+
+    if (trainImages.length === 0) {
+      throw new Error("No valid training data found.");
     }
 
-    // Stack all images into a single batch tensor
-    const xs = tf.stack(images) as tf.Tensor4D;
-    const ys = tf.oneHot(
-      tf.tensor1d(labels, "int32"),
+    // Stack tensors
+    const trainXs = tf.stack(trainImages) as tf.Tensor4D;
+    const trainYs = tf.oneHot(
+      tf.tensor1d(trainLabels, "int32"),
       this.labels.length
     ) as tf.Tensor2D;
 
-    // Dispose individual tensors now that they are stacked
-    images.forEach((t) => t.dispose());
+    const valXs = tf.stack(valImages) as tf.Tensor4D;
+    const valYs = tf.oneHot(
+      tf.tensor1d(valLabels, "int32"),
+      this.labels.length
+    ) as tf.Tensor2D;
 
-    return { xs, ys };
+    // Verify shapes
+    console.log(
+      `✅ Split Complete. Train: ${trainXs.shape[0]} samples, Val: ${valXs.shape[0]} samples.`
+    );
+
+    // Dispose individual tensors now that they are stacked
+    trainImages.forEach((t) => t.dispose());
+    valImages.forEach((t) => t.dispose());
+
+    return {
+      train: { xs: trainXs, ys: trainYs },
+      val: { xs: valXs, ys: valYs },
+      stats,
+    };
   }
 
   /**
@@ -235,10 +334,11 @@ export class Trainer {
    * Trains the model.
    */
   public async train(
-    data: { xs: tf.Tensor4D; ys: tf.Tensor2D },
+    trainData: { xs: tf.Tensor4D; ys: tf.Tensor2D },
+    valData: { xs: tf.Tensor4D; ys: tf.Tensor2D },
     config: TrainingConfig,
     onEpochEnd?: (epoch: number, logs: tf.Logs | undefined) => void,
-    onLog?: (message: string) => void // New callback for text logs
+    onLog?: (message: string) => void
   ) {
     if (!this.model) {
       this.createModel();
@@ -246,57 +346,56 @@ export class Trainer {
 
     if (!this.model) throw new Error("Model creation failed");
 
-    const numSamples = data.xs.shape[0];
-    console.log(`Starting training with ${numSamples} samples...`);
+    const numTrainSamples = trainData.xs.shape[0];
+    const numValSamples = valData.xs.shape[0];
+    console.log(
+      `Starting training with ${numTrainSamples} train samples and ${numValSamples} val samples...`
+    );
 
     // Custom training loop
     const BATCH_SIZE = config.batchSize;
-    const STEPS_PER_EPOCH = Math.ceil(numSamples / BATCH_SIZE);
+    const STEPS_PER_EPOCH = Math.ceil(numTrainSamples / BATCH_SIZE);
 
-    // Early Stopping State
-    let bestLoss = Infinity;
+    // Early Stopping State (Monitors Val Loss)
+    let bestValLoss = Infinity;
     let patienceCount = 0;
     let bestWeights: tf.NamedTensorMap | undefined;
 
     for (let epoch = 0; epoch < config.epochs; epoch++) {
       if (this.model.stopTraining) break;
 
-      let epochLoss = 0;
-      let epochAcc = 0;
+      // --- TRAINING PHASE ---
+      let trainEpochLoss = 0;
+      let trainEpochAcc = 0;
 
-      // Shuffle indices
-      const indices = tf.util.createShuffledIndices(numSamples);
+      // Shuffle indices for training only
+      const indices = tf.util.createShuffledIndices(numTrainSamples);
 
-      for (let i = 0; i < numSamples; i += BATCH_SIZE) {
+      for (let i = 0; i < numTrainSamples; i += BATCH_SIZE) {
         if (this.model.stopTraining) break;
 
         const batchIndices = [];
-        for (let j = 0; j < BATCH_SIZE && i + j < numSamples; j++) {
+        for (let j = 0; j < BATCH_SIZE && i + j < numTrainSamples; j++) {
           batchIndices.push(indices[i + j]);
         }
 
-        // 1. Extract Batch Data (outside tidy to manage disposal manually)
+        // 1. Extract Batch Data
         const batchIndicesTensor = tf.tensor1d(batchIndices, "int32");
-        const batchXs = data.xs.gather(batchIndicesTensor);
-        const batchYs = data.ys.gather(batchIndicesTensor);
+        const batchXs = trainData.xs.gather(batchIndicesTensor);
+        const batchYs = trainData.ys.gather(batchIndicesTensor);
         batchIndicesTensor.dispose();
 
-        // 2. Augment (Vectorized Batch Augmentation - Faster)
+        // 2. Augment (ONLY FOR TRAINING)
         const augmentedXs = this.augmentBatch(batchXs as tf.Tensor4D);
-        // Note: Augmentation is ENABLED to improve model robustness
-        // const trainingXs = batchXs as tf.Tensor4D;
+        batchXs.dispose(); // Free original batch
 
-        // 3. Train (Async, NEVER inside tidy)
-        // Cleanup input batch tensors immediately as we have the augmented copy
-        batchXs.dispose(); // Important: Free original batch memory
-
+        // 3. Train
         let lossVal = 0;
         let accVal = 0;
 
         try {
           const res = await this.model.trainOnBatch(augmentedXs, batchYs);
 
-          // Helper to safely extract value from Scalar or number
           const extractVal = (val: number | tf.Scalar): number => {
             if (typeof val === "number") return val;
             return val.dataSync()[0];
@@ -309,42 +408,80 @@ export class Trainer {
             lossVal = extractVal(res as number | tf.Scalar);
           }
         } finally {
-          // 4. Cleanup Training Tensors
-          augmentedXs.dispose(); // Free augmented batch memory
-          // batchXs.dispose(); // Already done above
+          augmentedXs.dispose();
           batchYs.dispose();
         }
 
-        epochLoss += lossVal;
-        epochAcc += accVal;
+        trainEpochLoss += lossVal;
+        trainEpochAcc += accVal;
 
-        // Give GPU time to breathe to prevent TDR/Context Loss
         await new Promise((resolve) => setTimeout(resolve, 1));
         await tf.nextFrame();
       }
 
-      // Epoch End
-      const avgLoss = epochLoss / STEPS_PER_EPOCH;
-      const avgAcc = epochAcc / STEPS_PER_EPOCH;
+      const avgTrainLoss = trainEpochLoss / STEPS_PER_EPOCH;
+      const avgTrainAcc = trainEpochAcc / STEPS_PER_EPOCH;
 
-      console.log(
-        `Epoch ${epoch + 1}: loss=${avgLoss.toFixed(4)}, acc=${avgAcc.toFixed(
-          4
-        )}`
-      );
+      // --- VALIDATION PHASE (No Augmentation, No Backprop) ---
+      let valEpochLoss = 0;
+      let valEpochAcc = 0;
+      const valSteps = Math.ceil(numValSamples / BATCH_SIZE);
 
-      // --- Early Stopping Check ---
+      // No shuffling needed for validation, just iterate
+      for (let i = 0; i < numValSamples; i += BATCH_SIZE) {
+        const end = Math.min(i + BATCH_SIZE, numValSamples);
+        // Slice directly (faster than gather)
+        const batchValXs = valData.xs.slice(
+          [i, 0, 0, 0],
+          [end - i, 224, 224, 3]
+        );
+        const batchValYs = valData.ys.slice(
+          [i, 0],
+          [end - i, this.labels.length]
+        );
+
+        // Evaluate
+        const evalRes = this.model.evaluate(
+          batchValXs,
+          batchValYs
+        ) as tf.Scalar[];
+        const vLoss = evalRes[0].dataSync()[0];
+        const vAcc = evalRes[1].dataSync()[0];
+
+        valEpochLoss += vLoss;
+        valEpochAcc += vAcc;
+
+        // Cleanup
+        batchValXs.dispose();
+        batchValYs.dispose();
+        evalRes.forEach((t) => t.dispose());
+      }
+
+      const avgValLoss = valEpochLoss / valSteps;
+      const avgValAcc = valEpochAcc / valSteps;
+
+      // Log Results
+      const logMsg = `Epoch ${epoch + 1}: Train [loss=${avgTrainLoss.toFixed(
+        4
+      )}, accuracy=${avgTrainAcc.toFixed(
+        4
+      )}] | Validation [loss=${avgValLoss.toFixed(
+        4
+      )}, accuracy=${avgValAcc.toFixed(4)}]`;
+      console.log(logMsg);
+      if (onLog) onLog(logMsg);
+
+      // --- Early Stopping Check (Based on Val Loss) ---
       if (config.earlyStopping?.enabled) {
-        if (avgLoss < bestLoss - config.earlyStopping.minDelta) {
+        if (avgValLoss < bestValLoss - config.earlyStopping.minDelta) {
           // Improvement detected
-          bestLoss = avgLoss;
+          bestValLoss = avgValLoss;
           patienceCount = 0;
 
           // Save best weights
           if (bestWeights) {
             tf.dispose(bestWeights);
           }
-          // Clone weights to keep a snapshot
           bestWeights = {};
           this.model.getWeights().forEach((w, i) => {
             bestWeights![i] = w.clone();
@@ -352,43 +489,47 @@ export class Trainer {
         } else {
           // No improvement
           patienceCount++;
-          const msg = `⚠️ Early Stopping: No improvement for ${patienceCount}/${config.earlyStopping.patience} epochs.`;
+          const msg = `⚠️ Early Stopping: No val_loss improvement for ${patienceCount}/${
+            config.earlyStopping.patience
+          } epochs. (Best: ${bestValLoss.toFixed(4)})`;
           console.log(msg);
           if (onLog) onLog(msg);
 
           if (patienceCount >= config.earlyStopping.patience) {
-            const stopMsg =
-              "🛑 Early Stopping triggered! Restoring best weights...";
+            const stopMsg = `🛑 Early Stopping triggered at epoch ${
+              epoch + 1
+            }! Restoring best weights...`;
             console.log(stopMsg);
             if (onLog) onLog(stopMsg);
 
-            this.stopRequested = true; // Mark as stopped
+            this.stopRequested = true;
 
             // Restore best weights
             if (bestWeights) {
               const weightArray: tf.Tensor[] = [];
-              // Convert map back to array (assuming keys are indices)
               Object.keys(bestWeights)
                 .sort((a, b) => Number(a) - Number(b))
                 .forEach((key) => {
                   weightArray.push(bestWeights![key]);
                 });
               this.model.setWeights(weightArray);
-              const restoreMsg = `♻️ Restored model to best loss: ${bestLoss.toFixed(
+              const restoreMsg = `♻️ Restored model to best val_loss: ${bestValLoss.toFixed(
                 4
               )}`;
               console.log(restoreMsg);
               if (onLog) onLog(restoreMsg);
             }
-            break; // <--- BREAK THE LOOP HERE
+            break;
           }
         }
       }
 
       if (onEpochEnd) {
         onEpochEnd(epoch + 1, {
-          loss: avgLoss,
-          acc: avgAcc,
+          loss: avgTrainLoss,
+          acc: avgTrainAcc,
+          val_loss: avgValLoss,
+          val_acc: avgValAcc,
         } as unknown as tf.Logs);
       }
     }
