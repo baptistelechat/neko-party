@@ -141,6 +141,7 @@ export class Trainer {
    */
   public async loadDatasetFromZips(
     zipFiles: File[],
+    expectedTotalImages: number,
     onProgress?: (count: number, total: number) => void
   ): Promise<{
     train: { xs: tf.Tensor4D; ys: tf.Tensor2D };
@@ -160,59 +161,56 @@ export class Trainer {
     const dataByLabel: { [labelIndex: number]: tf.Tensor3D[] } = {};
     this.labels.forEach((_, i) => (dataByLabel[i] = []));
 
-    let totalFiles = 0;
-    const zipContents: Array<{ zip: JSZip; files: string[] }> = [];
+    // Use expected total for accurate progress bar
+    const estimatedTotalFiles = expectedTotalImages;
+    let processedGlobalCount = 0;
 
-    // Pre-scan to count files
     for (const zipFile of zipFiles) {
-      const zip = await JSZip.loadAsync(zipFile);
-      const cropFiles = Object.keys(zip.files).filter(
-        (path) =>
-          path.startsWith("crops/") &&
-          (path.endsWith(".jpg") || path.endsWith(".jpeg"))
-      );
-      totalFiles += cropFiles.length;
-      zipContents.push({ zip, files: cropFiles });
-    }
-
-    let processedCount = 0;
-
-    for (const { zip, files } of zipContents) {
       if (this.stopRequested) break;
 
-      for (const filename of files) {
-        if (this.stopRequested) break;
+      try {
+        const zip = await JSZip.loadAsync(zipFile);
+        const cropFiles = Object.keys(zip.files).filter(
+          (path) =>
+            path.startsWith("crops/") &&
+            (path.endsWith(".jpg") || path.endsWith(".jpeg"))
+        );
 
-        // Report progress
-        processedCount++;
-        if (onProgress && processedCount % 10 === 0) {
-          onProgress(processedCount, totalFiles);
-          await tf.nextFrame(); // Keep UI responsive
-        }
+        for (const filename of cropFiles) {
+          if (this.stopRequested) break;
 
-        // Extract label from filename: skyjo_crop_[LABEL]_[timestamp].jpg
-        const match = filename.match(/skyjo_crop_(-?\d+)_/);
-        if (match && match[1]) {
-          const labelStr = match[1];
-          const labelIndex = this.labels.indexOf(labelStr);
+          processedGlobalCount++;
+          if (onProgress && processedGlobalCount % 20 === 0) {
+            onProgress(processedGlobalCount, estimatedTotalFiles);
+            await tf.nextFrame(); // Keep UI responsive
+          }
 
-          if (labelIndex !== -1) {
-            // Load image as Blob -> Bitmap -> Tensor
-            const blob = await zip.files[filename].async("blob");
-            const imgBitmap = await createImageBitmap(blob);
+          // Extract label from filename: skyjo_crop_[LABEL]_[timestamp].jpg
+          const match = filename.match(/skyjo_crop_(-?\d+)_/);
+          if (match && match[1]) {
+            const labelStr = match[1];
+            const labelIndex = this.labels.indexOf(labelStr);
 
-            const tensor = tf.tidy(() => {
-              return tf.browser
-                .fromPixels(imgBitmap)
-                .resizeBilinear([224, 224]) // Restored to 224x224
-                .toFloat()
-                .div(tf.scalar(255)) as tf.Tensor3D;
-            });
+            if (labelIndex !== -1) {
+              // Load image as Blob -> Bitmap -> Tensor
+              const blob = await zip.files[filename].async("blob");
+              const imgBitmap = await createImageBitmap(blob);
 
-            dataByLabel[labelIndex].push(tensor);
-            imgBitmap.close(); // Clean up bitmap
+              const tensor = tf.tidy(() => {
+                return tf.browser
+                  .fromPixels(imgBitmap)
+                  .resizeBilinear([224, 224]) // Restored to 224x224
+                  .toFloat()
+                  .div(tf.scalar(255)) as tf.Tensor3D;
+              });
+
+              dataByLabel[labelIndex].push(tensor);
+              imgBitmap.close(); // Clean up bitmap
+            }
           }
         }
+      } catch (e) {
+        console.error(`Failed to load zip file ${zipFile.name}:`, e);
       }
     }
 
@@ -346,11 +344,56 @@ export class Trainer {
 
     if (!this.model) throw new Error("Model creation failed");
 
+    const model = this.model; // Capture model locally to satisfy TS in callbacks
+
     const numTrainSamples = trainData.xs.shape[0];
     const numValSamples = valData.xs.shape[0];
     console.log(
       `Starting training with ${numTrainSamples} train samples and ${numValSamples} val samples...`
     );
+
+    // --- CLASS WEIGHTING LOGIC ---
+    // Calculate class weights to handle potential dataset imbalance
+    // Formula: weight_i = total_samples / (num_classes * count_i)
+
+    // Use tf.tidy to clean up intermediate tensors during calculation
+    const trainSampleWeights = tf.tidy(() => {
+      const trainLabelsTensor = trainData.ys.argMax(1);
+      const trainLabels = trainLabelsTensor.dataSync();
+
+      const classCounts: { [key: number]: number } = {};
+      trainLabels.forEach(
+        (l: number) => (classCounts[l] = (classCounts[l] || 0) + 1)
+      );
+
+      const numClasses = this.labels.length;
+      const totalSamples = trainLabels.length;
+      const classWeights: { [key: number]: number } = {};
+
+      Object.keys(classCounts).forEach((key) => {
+        const k = Number(key);
+        const count = classCounts[k];
+        // Standard balancing formula
+        classWeights[k] = totalSamples / (numClasses * count);
+      });
+
+      // Log weights
+      if (onLog) {
+        const weightsInfo = this.labels
+          .map((l, i) =>
+            classWeights[i] ? `${l}=${classWeights[i].toFixed(2)}` : null
+          )
+          .filter(Boolean)
+          .join(", ");
+        onLog(`Balancing: [${weightsInfo}]`);
+      }
+
+      const sampleWeightsArray = new Float32Array(totalSamples);
+      for (let i = 0; i < totalSamples; i++) {
+        sampleWeightsArray[i] = classWeights[trainLabels[i]] || 0;
+      }
+      return tf.tensor1d(sampleWeightsArray);
+    });
 
     // Custom training loop
     const BATCH_SIZE = config.batchSize;
@@ -368,52 +411,92 @@ export class Trainer {
       let trainEpochLoss = 0;
       let trainEpochAcc = 0;
 
-      // Shuffle indices for training only
+      // Shuffle indices for training only (guarantees every sample is seen exactly once)
       const indices = tf.util.createShuffledIndices(numTrainSamples);
 
       for (let i = 0; i < numTrainSamples; i += BATCH_SIZE) {
-        if (this.model.stopTraining) break;
+        if (this.stopRequested) break;
 
-        const batchIndices = [];
+        const batchIndices: number[] = [];
         for (let j = 0; j < BATCH_SIZE && i + j < numTrainSamples; j++) {
           batchIndices.push(indices[i + j]);
         }
 
-        // 1. Extract Batch Data
-        const batchIndicesTensor = tf.tensor1d(batchIndices, "int32");
-        const batchXs = trainData.xs.gather(batchIndicesTensor);
-        const batchYs = trainData.ys.gather(batchIndicesTensor);
-        batchIndicesTensor.dispose();
+        // Random Batch Sampling (with Replacement) & Augmentation
+        // Using tf.tidy to ensure intermediate tensors are cleaned up
+        const { batchXsAugmented, batchYs, batchSampleWeights } = tf.tidy(
+          () => {
+            const batchIndicesTensor = tf.tensor1d(batchIndices, "int32");
+            const bx = trainData.xs.gather(batchIndicesTensor);
+            const by = trainData.ys.gather(batchIndicesTensor);
+            const bw = trainSampleWeights.gather(batchIndicesTensor); // Gather weights
+            const aug = this.augmentBatch(bx as tf.Tensor4D);
+            return {
+              batchXsAugmented: aug,
+              batchYs: by,
+              batchSampleWeights: bw,
+            };
+          }
+        );
 
-        // 2. Augment (ONLY FOR TRAINING)
-        const augmentedXs = this.augmentBatch(batchXs as tf.Tensor4D);
-        batchXs.dispose(); // Free original batch
-
-        // 3. Train
+        // Train
         let lossVal = 0;
         let accVal = 0;
 
         try {
-          const res = await this.model.trainOnBatch(augmentedXs, batchYs);
+          // Manual training step with sample weights
+          // model.fit() sampleWeight support is limited in WebGL, so we use trainOnBatch
+          // Note: trainOnBatch doesn't support sample weights directly either in all versions,
+          // so we might need a custom optimizer loop if this fails again.
+          // BUT: TF.js documentation says trainOnBatch(x, y) returns loss.
+          // To implement weights, we need to use optimizer.minimize() with a custom loss function.
 
-          const extractVal = (val: number | tf.Scalar): number => {
-            if (typeof val === "number") return val;
-            return val.dataSync()[0];
-          };
+          const lossScalar = tf.tidy(() => {
+            const def = model.optimizer.minimize(() => {
+              const preds = model.predict(batchXsAugmented) as tf.Tensor;
+              const loss = tf.losses.softmaxCrossEntropy(batchYs, preds);
+              // Apply sample weights: loss * weights
+              // Ensure dimensions match for broadcasting if needed
+              return loss.mul(batchSampleWeights).mean();
+            }, true); // true = return cost
+            return def;
+          });
 
-          if (Array.isArray(res)) {
-            lossVal = extractVal(res[0]);
-            accVal = extractVal(res[1]);
-          } else {
-            lossVal = extractVal(res as number | tf.Scalar);
+          // Calculate accuracy for reporting
+          const accScalar = tf.tidy(() => {
+            const preds = model.predict(batchXsAugmented) as tf.Tensor;
+            const predLabels = preds.argMax(1);
+            const trueLabels = batchYs.argMax(1);
+            return predLabels.equal(trueLabels).cast("float32").mean();
+          });
+
+          if (lossScalar) {
+            lossVal = lossScalar.dataSync()[0];
+            lossScalar.dispose();
+          }
+          if (accScalar) {
+            accVal = accScalar.dataSync()[0];
+            accScalar.dispose();
           }
         } finally {
-          augmentedXs.dispose();
+          batchXsAugmented.dispose();
           batchYs.dispose();
+          batchSampleWeights.dispose();
         }
 
         trainEpochLoss += lossVal;
         trainEpochAcc += accVal;
+
+        // Progress logging for slow GPUs
+        const currentStep = Math.floor(i / BATCH_SIZE) + 1;
+        if (onLog && (currentStep % 5 === 0 || currentStep === 1)) {
+          const percent = Math.round((currentStep / STEPS_PER_EPOCH) * 100);
+          onLog(
+            `Epoch ${
+              epoch + 1
+            }: ${percent}% (${currentStep}/${STEPS_PER_EPOCH} batches)...`
+          );
+        }
 
         await new Promise((resolve) => setTimeout(resolve, 1));
         await tf.nextFrame();
@@ -425,6 +508,7 @@ export class Trainer {
       // --- VALIDATION PHASE (No Augmentation, No Backprop) ---
       let valEpochLoss = 0;
       let valEpochAcc = 0;
+      // Use full validation set for fairness
       const valSteps = Math.ceil(numValSamples / BATCH_SIZE);
 
       // No shuffling needed for validation, just iterate
@@ -532,6 +616,11 @@ export class Trainer {
           val_acc: avgValAcc,
         } as unknown as tf.Logs);
       }
+    }
+
+    // Cleanup
+    if (trainSampleWeights) {
+      trainSampleWeights.dispose();
     }
 
     // Cleanup bestWeights tensors

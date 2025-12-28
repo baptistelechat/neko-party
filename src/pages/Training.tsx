@@ -21,9 +21,10 @@ import {
   Timer,
   Upload,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { TrainingCharts } from "@/components/TrainingCharts";
+import { toast } from "sonner";
 
 export default function TrainingPage() {
   const {
@@ -42,7 +43,20 @@ export default function TrainingPage() {
     exportModel,
   } = useTraining();
 
+  const logsEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom of logs
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
   const [showStopDialog, setShowStopDialog] = useState(false);
+
+  const handleCopyLogs = () => {
+    const summary = logs.join("\n");
+    navigator.clipboard.writeText(summary);
+    toast.success("Logs copiés dans le presse-papier !");
+  };
 
   const handleStopTraining = () => {
     stopTraining();
@@ -169,12 +183,15 @@ export default function TrainingPage() {
             {logs.map((log, i) => {
               let colorClass = "text-zinc-400"; // Default
               if (log.includes("loss=")) colorClass = "text-blue-400";
-              if (log.includes("⚠️"))
-                colorClass = "text-yellow-500 font-semibold";
-              if (log.includes("🛑")) colorClass = "text-red-500 font-bold";
-              if (log.includes("♻️")) colorClass = "text-green-500 font-bold";
-              if (log.includes("Training completed"))
-                colorClass = "text-green-400 font-bold";
+              if (log.includes("⚠️") || log.includes("Balancing"))
+                colorClass = "text-yellow-500";
+              if (log.includes("🛑")) colorClass = "text-red-500";
+              if (
+                log.includes("♻️") ||
+                log.includes("Training completed") ||
+                log.includes("Manifest")
+              )
+                colorClass = "text-green-500";
 
               return (
                 <div key={i} className={`${colorClass} mb-1`}>

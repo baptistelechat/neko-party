@@ -17,8 +17,16 @@ export interface DatasetStat {
   Val: number;
 }
 
+interface ManifestEntry {
+  filename: string;
+  count: number;
+  size: number;
+  error?: string;
+}
+
 export const useTraining = () => {
   const [files, setFiles] = useState<File[]>([]);
+  const [totalImages, setTotalImages] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [datasetStats, setDatasetStats] = useState<DatasetStat[]>([]);
@@ -53,6 +61,8 @@ export const useTraining = () => {
     if (e.target.files) {
       setFiles(Array.from(e.target.files));
       setLogs((prev) => [...prev, `Selected ${e.target.files?.length} files.`]);
+      // Estimate 50 images per zip for manual upload
+      setTotalImages(e.target.files.length * 50);
     }
   };
 
@@ -68,24 +78,69 @@ export const useTraining = () => {
       if (!manifestRes.ok) {
         throw new Error("Manifest non trouvé (public/dataset/manifest.json)");
       }
-      const filenames: string[] = await manifestRes.json();
+      const manifest = await manifestRes.json();
+
+      // Handle both old format (string[]) and new format (object[])
+      const isNewFormat =
+        manifest.length > 0 && typeof manifest[0] !== "string";
+
+      let filenames: string[];
+      let calculatedTotalImages: number;
+
+      if (isNewFormat) {
+        const entries = manifest as ManifestEntry[];
+        filenames = entries.map((entry) => entry.filename);
+        calculatedTotalImages = entries.reduce(
+          (sum, entry) => sum + (entry.count || 0),
+          0
+        );
+      } else {
+        filenames = manifest as string[];
+        calculatedTotalImages = filenames.length * 50; // Fallback estimate
+      }
+
+      setTotalImages(calculatedTotalImages);
+
       setLogs((prev) => [
         ...prev,
-        `Manifest chargé: ${filenames.length} fichiers trouvés.`,
+        `Manifest chargé: ${filenames.length} fichiers trouvés (${calculatedTotalImages} images).`,
       ]);
 
       // 2. Fetch all ZIPs
       const loadedFiles: File[] = [];
       for (const filename of filenames) {
         setLogs((prev) => [...prev, `Chargement de ${filename}...`]);
-        const response = await fetch(`/dataset/${filename}`);
-        if (!response.ok) {
-          setLogs((prev) => [...prev, `Erreur chargement ${filename}`]);
-          continue;
+        try {
+          const response = await fetch(`/dataset/${filename}`, {
+            cache: "no-cache",
+          });
+
+          if (!response.ok) {
+            setLogs((prev) => [
+              ...prev,
+              `Erreur chargement ${filename} (Status: ${response.status})`,
+            ]);
+            continue;
+          }
+
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("text/html")) {
+            setLogs((prev) => [
+              ...prev,
+              `Erreur: Le fichier ${filename} semble être une page HTML (probablement 404)`,
+            ]);
+            continue;
+          }
+
+          const blob = await response.blob();
+          const file = new File([blob], filename, { type: "application/zip" });
+          loadedFiles.push(file);
+        } catch (err) {
+          setLogs((prev) => [
+            ...prev,
+            `Exception chargement ${filename}: ${err}`,
+          ]);
         }
-        const blob = await response.blob();
-        const file = new File([blob], filename, { type: "application/zip" });
-        loadedFiles.push(file);
       }
 
       setFiles(loadedFiles);
@@ -132,6 +187,7 @@ export const useTraining = () => {
       // 1. Load Data (Stratified Split)
       const splitData = await trainerRef.current.loadDatasetFromZips(
         files,
+        totalImages,
         (count, total) => {
           setLogs((prev) => {
             const lastLog = prev[prev.length - 1];
@@ -167,10 +223,7 @@ export const useTraining = () => {
       };
 
       // 3. Train
-      setLogs((prev) => [
-        ...prev,
-        `Starting training... (Monitors val_loss)`,
-      ]);
+      setLogs((prev) => [...prev, `Starting training... (Monitors val_loss)`]);
 
       await trainerRef.current.train(
         trainData!,
@@ -195,9 +248,10 @@ export const useTraining = () => {
 
       setIsModelReady(true);
       setLogs((prev) => [...prev, "Training Complete! ✅"]);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setLogs((prev) => [...prev, `Error: ${err.message}`]);
+      const msg = err instanceof Error ? err.message : String(err);
+      setLogs((prev) => [...prev, `Error: ${msg}`]);
     } finally {
       setIsTraining(false);
       if (timerRef.current) {
