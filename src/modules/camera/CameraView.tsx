@@ -36,7 +36,7 @@ export const CameraView = ({ onFrame }: CameraViewProps) => {
       <div className="flex flex-col items-center justify-center h-full text-destructive p-4 text-center">
         <AlertCircle className="w-12 h-12 mb-4" />
         <p className="font-semibold mb-2">{error}</p>
-        <p className="text-xs text-muted-foreground mb-4 max-w-[250px]">
+        <p className="text-xs text-muted-foreground mb-4 max-w-62.5">
           Si le problème persiste, essayez de désactiver vos extensions de
           navigateur (bloqueurs de pub, etc.) ou utilisez le mode navigation
           privée.
