@@ -112,7 +112,7 @@ export const useTraining = () => {
     let data: { xs: tf.Tensor4D; ys: tf.Tensor2D } | null = null;
 
     try {
-      setLogs((prev) => [...prev, "Loading dataset from ZIPs..."]);
+      setLogs((prev) => [...prev, `Loading: ${files.length} source images...`]);
 
       // 1. Load Data
       data = await trainerRef.current.loadDatasetFromZips(
@@ -120,8 +120,8 @@ export const useTraining = () => {
         (count, total) => {
           setLogs((prev) => {
             const lastLog = prev[prev.length - 1];
-            const msg = `Loading & Augmenting: ${count}/${total} source images...`;
-            if (lastLog && lastLog.startsWith("Loading & Augmenting:")) {
+            const msg = `Loading: ${count}/${total} source images...`;
+            if (lastLog && lastLog.startsWith("Loading:")) {
               return [...prev.slice(0, -1), msg];
             }
             return [...prev, msg];
@@ -131,13 +131,19 @@ export const useTraining = () => {
 
       setLogs((prev) => [
         ...prev,
-        `Dataset ready: ${data?.xs.shape[0]} samples (including augmentation).`,
+        `Dataset ready: ${data?.xs.shape[0]} samples.`,
+        "Starting training... (This may take a while)",
       ]);
 
       // 2. Configure Training
       const config: TrainingConfig = {
-        epochs: 20,
-        batchSize: 8, // Reduced to prevent WebGL Context Loss / GPU Crash
+        epochs: 50, // Increased because Early Stopping will handle the stop
+        batchSize: 8,
+        earlyStopping: {
+          enabled: true,
+          patience: 5,
+          minDelta: 0.001,
+        },
       };
 
       // 3. Train
@@ -181,26 +187,33 @@ export const useTraining = () => {
           ...prev,
           `Starting training with ${data?.xs.shape[0]} samples...`,
         ]);
-        await trainerRef.current.train(data, config, (epoch, logs) => {
-          const loss = logs?.loss ? logs.loss.toFixed(4) : "0.0000";
-          const acc = logs?.acc ? logs.acc.toFixed(4) : "0.0000";
+        await trainerRef.current.train(
+          data,
+          config,
+          (epoch, logs) => {
+            const loss = logs?.loss ? logs.loss.toFixed(4) : "0.0000";
+            const acc = logs?.acc ? logs.acc.toFixed(4) : "0.0000";
 
-          setLogs((prev) => [
-            ...prev,
-            `Epoch ${epoch}: loss=${loss}, acc=${acc}`,
-          ]);
+            setLogs((prev) => [
+              ...prev,
+              `Epoch ${epoch}: loss=${loss}, acc=${acc}`,
+            ]);
 
-          const newProgress = {
-            epoch,
-            loss: logs?.loss || 0,
-            acc: logs?.acc || 0,
-            val_loss: 0,
-            val_acc: 0,
-          };
+            const newProgress = {
+              epoch,
+              loss: logs?.loss || 0,
+              acc: logs?.acc || 0,
+              val_loss: 0,
+              val_acc: 0,
+            };
 
-          setProgress(newProgress);
-          setHistory((prev) => [...prev, newProgress]);
-        });
+            setProgress(newProgress);
+            setHistory((prev) => [...prev, newProgress]);
+          },
+          (message) => {
+            setLogs((prev) => [...prev, message]);
+          }
+        );
       }
 
       setLogs((prev) => [...prev, "Training completed!"]);

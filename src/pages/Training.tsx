@@ -1,3 +1,4 @@
+import { useTraining } from "@/hooks/useTraining";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -21,7 +22,6 @@ import {
   Upload,
 } from "lucide-react";
 import { useState } from "react";
-import { useTraining } from "@/hooks/useTraining";
 
 import { TrainingCharts } from "@/components/TrainingCharts";
 
@@ -40,7 +40,7 @@ export default function TrainingPage() {
     stopTraining,
     exportModel,
   } = useTraining();
-  
+
   const [showStopDialog, setShowStopDialog] = useState(false);
 
   const handleStopTraining = () => {
@@ -52,7 +52,7 @@ export default function TrainingPage() {
     <div className="p-6 bg-zinc-900 min-h-screen text-white flex flex-col gap-6">
       <h1 className="text-2xl font-bold flex items-center gap-2">
         <Play className="text-blue-500" />
-        Entraînement Local (CNN)
+        Entraînement Local Convolutional Neural Network (CNN)
       </h1>
 
       <div className="bg-zinc-800 p-4 rounded-lg border border-zinc-700">
@@ -156,10 +156,23 @@ export default function TrainingPage() {
         </div>
 
         {/* Logs Console */}
-        <div className="mt-4 bg-black p-2 rounded h-50 overflow-y-auto font-mono text-xs text-zinc-400 border border-zinc-700">
-          {logs.map((log, i) => (
-            <div key={i}>{log}</div>
-          ))}
+        <div className="mt-4 bg-zinc-950 p-3 rounded-lg h-64 overflow-y-auto font-mono text-xs border border-zinc-800 shadow-inner">
+          {logs.map((log, i) => {
+            let colorClass = "text-zinc-400"; // Default
+            if (log.includes("loss=")) colorClass = "text-blue-400";
+            if (log.includes("⚠️"))
+              colorClass = "text-yellow-500 font-semibold";
+            if (log.includes("🛑")) colorClass = "text-red-500 font-bold";
+            if (log.includes("♻️")) colorClass = "text-green-500 font-bold";
+            if (log.includes("Training completed"))
+              colorClass = "text-green-400 font-bold";
+
+            return (
+              <div key={i} className={`${colorClass} mb-1`}>
+                {log}
+              </div>
+            );
+          })}
         </div>
 
         {/* Charts */}
@@ -169,7 +182,6 @@ export default function TrainingPage() {
           </div>
         )}
       </div>
-      
 
       <div className="bg-zinc-800 p-4 rounded-lg border border-zinc-700">
         <h2 className="font-bold mb-4">3. Exporter</h2>

@@ -4,6 +4,11 @@ import JSZip from "jszip";
 export interface TrainingConfig {
   epochs: number;
   batchSize: number;
+  earlyStopping?: {
+    enabled: boolean;
+    patience: number; // Nombre d'époques sans amélioration avant arrêt
+    minDelta: number; // Amélioration minimale requise
+  };
 }
 
 export class Trainer {
@@ -227,12 +232,13 @@ export class Trainer {
   }
 
   /**
-   * Trains the model using a data generator to handle augmentation on-the-fly.
+   * Trains the model.
    */
   public async train(
     data: { xs: tf.Tensor4D; ys: tf.Tensor2D },
     config: TrainingConfig,
-    onEpochEnd?: (epoch: number, logs: tf.Logs | undefined) => void
+    onEpochEnd?: (epoch: number, logs: tf.Logs | undefined) => void,
+    onLog?: (message: string) => void // New callback for text logs
   ) {
     if (!this.model) {
       this.createModel();
@@ -241,13 +247,16 @@ export class Trainer {
     if (!this.model) throw new Error("Model creation failed");
 
     const numSamples = data.xs.shape[0];
-    console.log(
-      `Starting training with ${numSamples} original samples (augmented on-the-fly)...`
-    );
+    console.log(`Starting training with ${numSamples} samples...`);
 
     // Custom training loop
     const BATCH_SIZE = config.batchSize;
     const STEPS_PER_EPOCH = Math.ceil(numSamples / BATCH_SIZE);
+
+    // Early Stopping State
+    let bestLoss = Infinity;
+    let patienceCount = 0;
+    let bestWeights: tf.NamedTensorMap | undefined;
 
     for (let epoch = 0; epoch < config.epochs; epoch++) {
       if (this.model.stopTraining) break;
@@ -274,10 +283,12 @@ export class Trainer {
 
         // 2. Augment (Vectorized Batch Augmentation - Faster)
         const augmentedXs = this.augmentBatch(batchXs as tf.Tensor4D);
+        // Note: Augmentation is ENABLED to improve model robustness
+        // const trainingXs = batchXs as tf.Tensor4D;
 
         // 3. Train (Async, NEVER inside tidy)
         // Cleanup input batch tensors immediately as we have the augmented copy
-        batchXs.dispose();
+        batchXs.dispose(); // Important: Free original batch memory
 
         let lossVal = 0;
         let accVal = 0;
@@ -299,7 +310,8 @@ export class Trainer {
           }
         } finally {
           // 4. Cleanup Training Tensors
-          augmentedXs.dispose();
+          augmentedXs.dispose(); // Free augmented batch memory
+          // batchXs.dispose(); // Already done above
           batchYs.dispose();
         }
 
@@ -321,12 +333,69 @@ export class Trainer {
         )}`
       );
 
+      // --- Early Stopping Check ---
+      if (config.earlyStopping?.enabled) {
+        if (avgLoss < bestLoss - config.earlyStopping.minDelta) {
+          // Improvement detected
+          bestLoss = avgLoss;
+          patienceCount = 0;
+
+          // Save best weights
+          if (bestWeights) {
+            tf.dispose(bestWeights);
+          }
+          // Clone weights to keep a snapshot
+          bestWeights = {};
+          this.model.getWeights().forEach((w, i) => {
+            bestWeights![i] = w.clone();
+          });
+        } else {
+          // No improvement
+          patienceCount++;
+          const msg = `⚠️ Early Stopping: No improvement for ${patienceCount}/${config.earlyStopping.patience} epochs.`;
+          console.log(msg);
+          if (onLog) onLog(msg);
+
+          if (patienceCount >= config.earlyStopping.patience) {
+            const stopMsg =
+              "🛑 Early Stopping triggered! Restoring best weights...";
+            console.log(stopMsg);
+            if (onLog) onLog(stopMsg);
+
+            this.stopRequested = true; // Mark as stopped
+
+            // Restore best weights
+            if (bestWeights) {
+              const weightArray: tf.Tensor[] = [];
+              // Convert map back to array (assuming keys are indices)
+              Object.keys(bestWeights)
+                .sort((a, b) => Number(a) - Number(b))
+                .forEach((key) => {
+                  weightArray.push(bestWeights![key]);
+                });
+              this.model.setWeights(weightArray);
+              const restoreMsg = `♻️ Restored model to best loss: ${bestLoss.toFixed(
+                4
+              )}`;
+              console.log(restoreMsg);
+              if (onLog) onLog(restoreMsg);
+            }
+            break; // <--- BREAK THE LOOP HERE
+          }
+        }
+      }
+
       if (onEpochEnd) {
         onEpochEnd(epoch + 1, {
           loss: avgLoss,
           acc: avgAcc,
         } as unknown as tf.Logs);
       }
+    }
+
+    // Cleanup bestWeights tensors
+    if (bestWeights) {
+      tf.dispose(bestWeights);
     }
 
     return {
