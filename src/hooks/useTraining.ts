@@ -21,9 +21,10 @@ export const useTraining = () => {
     val_loss: 0,
     val_acc: 0,
   });
+  const [history, setHistory] = useState<TrainingProgress[]>([]);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isModelReady, setIsModelReady] = useState(false);
-  
+
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const trainerRef = useRef<Trainer>(new Trainer());
 
@@ -99,6 +100,7 @@ export const useTraining = () => {
     setIsTraining(true);
     setIsModelReady(false);
     setLogs([]);
+    setHistory([]);
     setElapsedTime(0);
 
     // Start Timer
@@ -188,13 +190,16 @@ export const useTraining = () => {
             `Epoch ${epoch}: loss=${loss}, acc=${acc}`,
           ]);
 
-          setProgress({
+          const newProgress = {
             epoch,
             loss: logs?.loss || 0,
             acc: logs?.acc || 0,
             val_loss: 0,
             val_acc: 0,
-          });
+          };
+
+          setProgress(newProgress);
+          setHistory((prev) => [...prev, newProgress]);
         });
       }
 
@@ -237,6 +242,7 @@ export const useTraining = () => {
     isTraining,
     logs,
     progress,
+    history,
     elapsedTime,
     isModelReady,
     handleFileChange,

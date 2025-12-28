@@ -23,12 +23,15 @@ import {
 import { useState } from "react";
 import { useTraining } from "@/hooks/useTraining";
 
+import { TrainingCharts } from "@/components/TrainingCharts";
+
 export default function TrainingPage() {
   const {
     files,
     isTraining,
     logs,
     progress,
+    history,
     elapsedTime,
     isModelReady,
     handleFileChange,
@@ -153,12 +156,20 @@ export default function TrainingPage() {
         </div>
 
         {/* Logs Console */}
-        <div className="mt-4 bg-black p-2 rounded h-40 overflow-y-auto font-mono text-xs text-zinc-400 border border-zinc-700">
+        <div className="mt-4 bg-black p-2 rounded h-50 overflow-y-auto font-mono text-xs text-zinc-400 border border-zinc-700">
           {logs.map((log, i) => (
             <div key={i}>{log}</div>
           ))}
         </div>
+
+        {/* Charts */}
+        {history.length > 0 && (
+          <div className="mt-4">
+            <TrainingCharts data={history} />
+          </div>
+        )}
       </div>
+      
 
       <div className="bg-zinc-800 p-4 rounded-lg border border-zinc-700">
         <h2 className="font-bold mb-4">3. Exporter</h2>
