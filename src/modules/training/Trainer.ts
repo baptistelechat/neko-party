@@ -325,7 +325,7 @@ export class Trainer {
         onEpochEnd(epoch + 1, {
           loss: avgLoss,
           acc: avgAcc,
-        } as any);
+        } as unknown as tf.Logs);
       }
     }
 

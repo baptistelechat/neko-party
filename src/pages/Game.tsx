@@ -1,4 +1,4 @@
-import { AddPlayerDialog } from "@/components/AddPlayerDialog";
+import { AddPlayerDialog } from "@/ui/components/AddPlayerDialog";
 import { useGameStore } from "@/modules/game/store";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card";

@@ -1,5 +1,4 @@
 import { cn } from "@/lib/utils";
-import { Trainer, TrainingConfig } from "@/modules/training/Trainer";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,7 +11,6 @@ import {
   AlertDialogTrigger,
 } from "@/ui/alert-dialog";
 import { Button } from "@/ui/button";
-import * as tf from "@tensorflow/tfjs";
 import {
   Download,
   Loader2,
@@ -22,223 +20,29 @@ import {
   Timer,
   Upload,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useTraining } from "@/hooks/useTraining";
 
 export default function TrainingPage() {
-  const [files, setFiles] = useState<File[]>([]);
-  const [isTraining, setIsTraining] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [progress, setProgress] = useState({
-    epoch: 0,
-    loss: 0,
-    acc: 0,
-    val_loss: 0,
-    val_acc: 0,
-  });
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const trainerRef = useRef<Trainer>(new Trainer());
-  const [isModelReady, setIsModelReady] = useState(false);
+  const {
+    files,
+    isTraining,
+    logs,
+    progress,
+    elapsedTime,
+    isModelReady,
+    handleFileChange,
+    loadDefaultDataset,
+    startTraining,
+    stopTraining,
+    exportModel,
+  } = useTraining();
+  
   const [showStopDialog, setShowStopDialog] = useState(false);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    const trainer = trainerRef.current;
-    return () => {
-      if (trainer) {
-        trainer.dispose();
-      }
-    };
-  }, []);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setFiles(Array.from(e.target.files));
-      setLogs((prev) => [...prev, `Selected ${e.target.files?.length} files.`]);
-    }
-  };
-
-  const loadDefaultDataset = async () => {
-    try {
-      setLogs((prev) => [
-        ...prev,
-        "Tentative de chargement du dataset par défaut...",
-      ]);
-
-      // 1. Fetch Manifest
-      const manifestRes = await fetch("/dataset/manifest.json");
-      if (!manifestRes.ok) {
-        throw new Error("Manifest non trouvé (public/dataset/manifest.json)");
-      }
-      const filenames: string[] = await manifestRes.json();
-      setLogs((prev) => [
-        ...prev,
-        `Manifest chargé: ${filenames.length} fichiers trouvés.`,
-      ]);
-
-      // 2. Fetch all ZIPs
-      const loadedFiles: File[] = [];
-      for (const filename of filenames) {
-        setLogs((prev) => [...prev, `Chargement de ${filename}...`]);
-        const response = await fetch(`/dataset/${filename}`);
-        if (!response.ok) {
-          setLogs((prev) => [...prev, `Erreur chargement ${filename}`]);
-          continue;
-        }
-        const blob = await response.blob();
-        const file = new File([blob], filename, { type: "application/zip" });
-        loadedFiles.push(file);
-      }
-
-      setFiles(loadedFiles);
-      setLogs((prev) => [
-        ...prev,
-        `Dataset complet chargé: ${loadedFiles.length} fichiers ZIP.`,
-      ]);
-    } catch (e) {
-      console.error(e);
-      setLogs((prev) => [...prev, `Erreur chargement défaut: ${e}`]);
-    }
-  };
-
   const handleStopTraining = () => {
-    trainerRef.current.stop();
-    setLogs((prev) => [...prev, "Stopping training..."]);
+    stopTraining();
     setShowStopDialog(false);
-  };
-
-  const startTraining = async () => {
-    setIsTraining(true);
-    setIsModelReady(false);
-    setLogs([]);
-    setElapsedTime(0);
-
-    // Start Timer
-    const startTime = Date.now();
-    timerRef.current = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
-
-    let data: { xs: tf.Tensor4D; ys: tf.Tensor2D } | null = null;
-
-    try {
-      setLogs((prev) => [...prev, "Loading dataset from ZIPs..."]);
-
-      // 1. Load Data
-      data = await trainerRef.current.loadDatasetFromZips(
-        files,
-        (count, total) => {
-          setLogs((prev) => {
-            const lastLog = prev[prev.length - 1];
-            const msg = `Loading & Augmenting: ${count}/${total} source images...`;
-            if (lastLog && lastLog.startsWith("Loading & Augmenting:")) {
-              return [...prev.slice(0, -1), msg];
-            }
-            return [...prev, msg];
-          });
-        }
-      );
-
-      setLogs((prev) => [
-        ...prev,
-        `Dataset ready: ${data?.xs.shape[0]} samples (including augmentation).`,
-      ]);
-
-      // 2. Configure Training
-      const config: TrainingConfig = {
-        epochs: 20,
-        batchSize: 8, // Reduced to prevent WebGL Context Loss / GPU Crash
-      };
-
-      // 3. Train
-      setLogs((prev) => [
-        ...prev,
-        "Starting training... (This may take a while)",
-      ]);
-
-      // Initialize Backend for Mobile
-      try {
-        await tf.setBackend("webgl");
-        await tf.ready();
-        const backend = tf.getBackend();
-        setLogs((prev) => [...prev, `TF.js Backend initialized: ${backend}`]);
-
-        if (backend === "webgl") {
-          const gl = (tf.backend() as tf.MathBackendWebGL).getGPGPUContext().gl;
-          setLogs((prev) => [
-            ...prev,
-            `WebGL Info: ${gl.getParameter(gl.RENDERER)}`,
-          ]);
-        }
-      } catch (e) {
-        setLogs((prev) => [
-          ...prev,
-          `Warning: WebGL init failed, falling back. Error: ${e}`,
-        ]);
-      }
-
-      // Log memory before training
-      const mem = tf.memory();
-      setLogs((prev) => [
-        ...prev,
-        `Memory: ${Math.round(mem.numBytes / 1024 / 1024)} MB (${
-          mem.numTensors
-        } tensors)`,
-      ]);
-
-      if (data) {
-        setLogs((prev) => [
-          ...prev,
-          `Starting training with ${data?.xs.shape[0]} samples...`,
-        ]);
-        await trainerRef.current.train(data, config, (epoch, logs) => {
-          const loss = logs?.loss ? logs.loss.toFixed(4) : "0.0000";
-          const acc = logs?.acc ? logs.acc.toFixed(4) : "0.0000";
-
-          setLogs((prev) => [
-            ...prev,
-            `Epoch ${epoch}: loss=${loss}, acc=${acc}`,
-          ]);
-
-          setProgress({
-            epoch,
-            loss: logs?.loss || 0,
-            acc: logs?.acc || 0,
-            val_loss: 0,
-            val_acc: 0,
-          });
-        });
-      }
-
-      setLogs((prev) => [...prev, "Training completed!"]);
-      setIsModelReady(true);
-    } catch (err) {
-      console.error(err);
-      setLogs((prev) => [...prev, `Error: ${err}`]);
-    } finally {
-      setIsTraining(false);
-      if (timerRef.current) clearInterval(timerRef.current);
-
-      // Cleanup Tensors
-      if (data) {
-        data.xs.dispose();
-        data.ys.dispose();
-      }
-
-      // Final cleanup check
-      const mem = tf.memory();
-      console.log("Memory after cleanup:", mem);
-    }
-  };
-
-  const exportModel = async () => {
-    try {
-      await trainerRef.current.exportModel();
-      setLogs((prev) => [...prev, "Model exported to downloads folder."]);
-    } catch (err) {
-      console.error(err);
-      setLogs((prev) => [...prev, "Export failed."]);
-    }
   };
 
   return (

@@ -3,6 +3,7 @@ import { MobileNet } from '@tensorflow-models/mobilenet';
 
 export class CardClassifierService {
   private static instance: CardClassifierService;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private knnClassifier: any; // Keep KNN for fallback/hybrid
   private cnnModel: tf.LayersModel | null = null; // New CNN Model
   private mobilenet: MobileNet | null = null;
@@ -40,10 +41,11 @@ export class CardClassifierService {
         });
         console.log("✅ Custom CNN Model loaded successfully!");
         this.cnnModel.summary(); // Print model summary to console
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.warn("❌ Could not load custom CNN model (Using KNN only).");
-        console.error("Detailed Error:", e.message);
-        if (e.message && e.message.includes("404")) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error("Detailed Error:", errorMessage);
+        if (errorMessage.includes("404")) {
             console.error("HINT: Ensure 'neko-skyjo-model.json' and 'neko-skyjo-model.weights.bin' are in 'public/models/'");
         }
     }
