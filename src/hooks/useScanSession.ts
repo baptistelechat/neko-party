@@ -65,20 +65,46 @@ export const useScanSession = (classifier: CardClassifierService) => {
     await datasetService.exportSessionZip(label);
   };
 
-  const uploadSession = async (label: string) => {
+  const uploadSession = async (
+    label: string,
+    onProgress?: (percent: number) => void
+  ) => {
     const { blob, filename } = await datasetService.generateSessionZip(label);
-    const response = await fetch(
-        `/upload-dataset?filename=${encodeURIComponent(filename)}`,
-        {
-          method: "POST",
-          body: blob,
-        }
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open(
+        "POST",
+        `/upload-dataset?filename=${encodeURIComponent(filename)}`
       );
 
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
+      if (onProgress) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = (event.loaded / event.total) * 100;
+            onProgress(percentComplete);
+          }
+        };
       }
-      return await response.json();
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch (e) {
+            resolve(xhr.responseText);
+          }
+        } else {
+          reject(new Error(`Upload failed: ${xhr.statusText}`));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error("Network Error"));
+      };
+
+      xhr.send(blob);
+    });
   };
 
   return {

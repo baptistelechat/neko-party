@@ -73,6 +73,9 @@ export default defineConfig({
   ],
   server: {
     host: true, // Expose to network
+    watch: {
+      ignored: ["**/public/dataset/**"],
+    },
   },
   resolve: {
     alias: {

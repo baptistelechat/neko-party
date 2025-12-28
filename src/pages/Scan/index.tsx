@@ -2,19 +2,21 @@ import { useCardDetection } from "@/hooks/useCardDetection";
 import { useScanSession } from "@/hooks/useScanSession";
 import { CameraView } from "@/modules/camera/CameraView";
 import { useRef, useState } from "react";
-import { TRAINING_STEPS } from "./constants";
-import { ScanLoading } from "./components/ScanLoading";
+import { ScanDebugOverlay } from "./components/ScanDebugOverlay";
 import { ScanGallery } from "./components/ScanGallery";
 import { ScanHeader } from "./components/ScanHeader";
-import { ScanTrainingControls } from "./components/ScanTrainingControls";
+import { ScanLoading } from "./components/ScanLoading";
 import { ScanOverlay } from "./components/ScanOverlay";
-import { ScanDebugOverlay } from "./components/ScanDebugOverlay";
+import { ScanTrainingControls } from "./components/ScanTrainingControls";
+import { TRAINING_STEPS } from "./constants";
+import { ScanUploadOverlay } from "./components/ScanUploadOverlay";
 
 export default function Scan() {
   // UI States
   const [showRobotVision, setShowRobotVision] = useState(false);
   const [isTrainingMode, setIsTrainingMode] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   // Training Steps Configuration
   const [trainingStep, setTrainingStep] = useState(0);
@@ -22,10 +24,12 @@ export default function Scan() {
   const [selectedLabel, setSelectedLabel] = useState<string>("-2");
 
   // Hooks
-  const { result, processFrame, isModelLoading, classifier } = useCardDetection({
-    enabled: !isTrainingMode,
-    returnDebugImage: showRobotVision,
-  });
+  const { result, processFrame, isModelLoading, classifier } = useCardDetection(
+    {
+      enabled: !isTrainingMode,
+      returnDebugImage: showRobotVision,
+    }
+  );
 
   const {
     sessionCount,
@@ -85,7 +89,12 @@ export default function Scan() {
 
   const performUpload = async () => {
     try {
-      await uploadSession(selectedLabel);
+      setUploadProgress(0);
+      await uploadSession(selectedLabel, (progress) => {
+        setUploadProgress(progress);
+      });
+      setUploadProgress(null);
+
       if (
         confirm(
           "Dataset envoyé au PC avec succès ! Effacer la session en cours ?"
@@ -94,6 +103,7 @@ export default function Scan() {
         clearSession();
       }
     } catch (e) {
+      setUploadProgress(null);
       console.error("Upload failed", e);
       alert("Erreur lors de l'envoi du dataset au PC.");
     }
@@ -110,6 +120,9 @@ export default function Scan() {
   return (
     <div className="flex flex-col h-dvh bg-black overflow-hidden">
       <ScanLoading isLoading={isModelLoading} />
+      {uploadProgress !== null && (
+        <ScanUploadOverlay progress={uploadProgress} />
+      )}
 
       <ScanGallery
         isOpen={showGallery}
