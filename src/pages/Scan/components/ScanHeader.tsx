@@ -1,5 +1,5 @@
-import { Button } from "@/ui/button";
-import { Toggle } from "@/ui/toggle";
+import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
 import { ArrowLeft, Bot, GraduationCap, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 

@@ -1,7 +1,7 @@
 "use client";
 
+import { type ChartConfig } from "@/components/ui/chart";
 import { TrainingProgress } from "@/hooks/useTraining";
-import { type ChartConfig } from "@/ui/chart";
 import { TrainingChartCard } from "./components/TrainingChartCard";
 
 interface TrainingChartsProps {

@@ -1,4 +1,4 @@
-import { Button } from "@/ui/button";
+import { Button } from "@/components/ui/button";
 import { Download, GraduationCap, Play, RotateCcw } from "lucide-react";
 import { TRAINABLE_LABELS, TRAINING_STEPS } from "../constants";
 

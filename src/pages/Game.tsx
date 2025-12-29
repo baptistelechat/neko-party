@@ -1,7 +1,7 @@
-import { AddPlayerDialog } from "@/ui/components/AddPlayerDialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AddPlayerDialog } from "@/components/AddPlayerDialog";
 import { useGameStore } from "@/modules/game/store";
-import { Button } from "@/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card";
 import { ArrowLeft, Plus, ScanLine } from "lucide-react";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";

@@ -1,5 +1,5 @@
+import { Button } from "@/components/ui/button";
 import { DatasetEntry } from "@/modules/dataset/types";
-import { Button } from "@/ui/button";
 import { ArrowLeftIcon, FolderArchive, Send } from "lucide-react";
 
 interface ScanGalleryProps {

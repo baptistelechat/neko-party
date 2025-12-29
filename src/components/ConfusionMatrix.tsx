@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { ConfusionMatrixResult } from "@/modules/training/Trainer";
-import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface ConfusionMatrixProps {
   data: ConfusionMatrixResult;

@@ -1,6 +1,5 @@
 "use client";
 
-import { TrainingProgress } from "@/hooks/useTraining";
 import {
   Card,
   CardContent,
@@ -8,13 +7,14 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/ui/card";
+} from "@/components/ui/card";
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
-} from "@/ui/chart";
+} from "@/components/ui/chart";
+import { TrainingProgress } from "@/hooks/useTraining";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 
 const THEME_CLASSES = {
