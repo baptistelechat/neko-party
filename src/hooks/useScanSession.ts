@@ -1,9 +1,8 @@
 import { DatasetService } from "@/modules/dataset/DatasetService";
 import { DatasetEntry } from "@/modules/dataset/types";
-import { CardClassifierService } from "@/modules/vision/CardClassifierService";
 import { useEffect, useRef, useState } from "react";
 
-export const useScanSession = (classifier: CardClassifierService) => {
+export const useScanSession = () => {
   const [sessionCount, setSessionCount] = useState(0);
   const [sessionEntries, setSessionEntries] = useState<DatasetEntry[]>([]);
   const [exampleCounts, setExampleCounts] = useState<{ [label: string]: number }>({});
@@ -12,11 +11,21 @@ export const useScanSession = (classifier: CardClassifierService) => {
   const targetBoxRef = useRef<HTMLDivElement>(null);
   const datasetService = DatasetService.getInstance();
 
+  const updateCounts = () => {
+    const entries = datasetService.getSessionEntries();
+    const counts: { [label: string]: number } = {};
+    entries.forEach(e => {
+      // Assuming single card per entry for now, as per scan logic
+      const label = e.annotation.cards[0]?.label || "?";
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    setExampleCounts(counts);
+  };
+
   useEffect(() => {
-    // Load initial counts
-    const counts = classifier.getExampleCount();
-    if (counts) setExampleCounts(counts);
-  }, [classifier]);
+    updateCounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const addExample = async (video: HTMLVideoElement, label: string) => {
     // Feedback: Vibration
@@ -35,26 +44,21 @@ export const useScanSession = (classifier: CardClassifierService) => {
         );
         setSessionCount(datasetService.getSessionCount());
         setSessionEntries([...datasetService.getSessionEntries()]);
+        updateCounts();
       } catch (e) {
         console.error("Failed to add entry to dataset session", e);
       }
     }
-
-    // Add to Classifier (KNN)
-    await classifier.addExample(video, label);
-    const counts = classifier.getExampleCount();
-    if (counts) setExampleCounts(counts);
   };
 
   const removeEntry = (index: number) => {
     datasetService.removeEntry(index);
     setSessionCount(datasetService.getSessionCount());
     setSessionEntries([...datasetService.getSessionEntries()]);
-    // Note: Can't easily remove from KNN classifier without full reload
+    updateCounts();
   };
 
   const clearSession = () => {
-    classifier.clearAllExamples();
     datasetService.clearSession();
     setSessionCount(0);
     setSessionEntries([]);

@@ -55,9 +55,9 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
       {/* Accuracy Chart */}
       <Card className="bg-zinc-800 border-zinc-700 text-white">
         <CardHeader>
-          <CardTitle>Accuracy (Train vs Val)</CardTitle>
+          <CardTitle>Accuracy (Train vs Validation)</CardTitle>
           <CardDescription className="text-zinc-400">
-            Monitor for divergence (Overfitting if Train &gt; Val)
+            Monitor for divergence (Overfitting if Train &gt; Validation)
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -125,7 +125,7 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
       {/* Loss Chart */}
       <Card className="bg-zinc-800 border-zinc-700 text-white">
         <CardHeader>
-          <CardTitle>Loss (Train vs Val)</CardTitle>
+          <CardTitle>Loss (Train vs Validation)</CardTitle>
           <CardDescription className="text-zinc-400">
             Validation Loss determines Early Stopping
           </CardDescription>

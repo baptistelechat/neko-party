@@ -24,7 +24,7 @@ export default function Scan() {
   const [selectedLabel, setSelectedLabel] = useState<string>("-2");
 
   // Hooks
-  const { result, processFrame, isModelLoading, classifier } = useCardDetection(
+  const { result, processFrame, isModelLoading } = useCardDetection(
     {
       enabled: !isTrainingMode,
       returnDebugImage: showRobotVision,
@@ -42,7 +42,7 @@ export default function Scan() {
     clearSession,
     exportSession,
     uploadSession,
-  } = useScanSession(classifier);
+  } = useScanSession();
 
   // Ref to hold video for training capture
   const currentVideoRef = useRef<HTMLVideoElement | null>(null);

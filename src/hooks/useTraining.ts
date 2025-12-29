@@ -214,10 +214,10 @@ export const useTraining = () => {
       // 2. Configure Training
       const config: TrainingConfig = {
         epochs: 50,
-        batchSize: 8,
+        batchSize: 16, // Augmenté de 8 à 16 pour stabiliser le gradient
         earlyStopping: {
           enabled: true,
-          patience: 5,
+          patience: 15, // Augmenté de 5 à 15
           minDelta: 0.001,
         },
       };

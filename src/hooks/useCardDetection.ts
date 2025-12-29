@@ -144,14 +144,6 @@ export const useCardDetection = ({
         return;
       }
 
-      // KNN Result
-      if (mlResult.method === "KNN") {
-        // We continue to OCR if KNN is low confidence or just to double check?
-        // Original code updated UI for KNN but didn't return.
-        // Let's keep it as is: update result but try OCR if needed.
-        // Actually original code didn't return for KNN.
-      }
-
       // 2. Fallback to OCR
       if (workerRef.current) {
         if (!processingCanvasRef.current) {
@@ -199,18 +191,6 @@ export const useCardDetection = ({
             isInverted: usedInverted,
             method: "OCR",
             image: returnDebugImage ? imageSrc : null,
-          });
-        }
-      } else {
-        // If no OCR worker but KNN had a result
-        if (mlResult.method === "KNN") {
-          setResult({
-            label: mlResult.label,
-            confidence: Math.round(mlResult.confidence * 100),
-            rawText: `KNN: ${mlResult.label}`,
-            isInverted: false,
-            method: "KNN",
-            image: returnDebugImage ? await captureFrame(video) : null,
           });
         }
       }

@@ -13,6 +13,7 @@ import {
 } from "@/ui/alert-dialog";
 import { Button } from "@/ui/button";
 import {
+  Copy,
   Download,
   Loader2,
   Package,
@@ -23,7 +24,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { TrainingCharts } from "@/components/TrainingCharts";
+import { TrainingCharts } from "@/ui/components/TrainingCharts";
 import { toast } from "sonner";
 
 export default function TrainingPage() {
@@ -179,26 +180,44 @@ export default function TrainingPage() {
         {/* Logs & Stats Grid */}
         <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 h-80">
           {/* Logs Console */}
-          <div className="lg:col-span-2 bg-zinc-950 p-3 rounded-lg overflow-y-auto font-mono text-xs border border-zinc-800 shadow-inner">
-            {logs.map((log, i) => {
-              let colorClass = "text-zinc-400"; // Default
-              if (log.includes("loss=")) colorClass = "text-blue-400";
-              if (log.includes("⚠️") || log.includes("Balancing"))
-                colorClass = "text-yellow-500";
-              if (log.includes("🛑")) colorClass = "text-red-500";
-              if (
-                log.includes("♻️") ||
-                log.includes("Training completed") ||
-                log.includes("Manifest")
-              )
-                colorClass = "text-green-500";
+          <div className="lg:col-span-2 bg-zinc-950 rounded-lg overflow-hidden border border-zinc-800 shadow-inner flex flex-col">
+            <div className="flex items-center justify-between bg-zinc-900 px-3 py-2 border-b border-zinc-800">
+              <span className="text-xs font-bold text-zinc-300">Logs</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                onClick={handleCopyLogs}
+              >
+                <Copy className="size-1" />
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 font-mono text-xs">
+              {logs.map((log, i) => {
+                let colorClass = "text-zinc-400"; // Default
+                if (log.includes("loss=")) colorClass = "text-blue-400";
+                if (log.includes("⚠️") || log.includes("Balancing"))
+                  colorClass = "text-yellow-500";
+                if (log.includes("🛑")) colorClass = "text-red-500";
+                if (
+                  log.includes("♻️") ||
+                  log.includes("Training completed") ||
+                  log.includes("Manifest")
+                )
+                  colorClass = "text-green-500";
+                if (
+                  log.includes("MobileNet")
+                )
+                  colorClass = "text-indigo-500";
 
-              return (
-                <div key={i} className={`${colorClass} mb-1`}>
-                  {log}
-                </div>
-              );
-            })}
+                return (
+                  <div key={i} className={`${colorClass} mb-1`}>
+                    {log}
+                  </div>
+                );
+              })}
+              <div ref={logsEndRef} />
+            </div>
           </div>
 
           {/* Distribution Stats Table */}

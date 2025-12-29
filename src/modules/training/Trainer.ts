@@ -12,10 +12,10 @@ export interface TrainingConfig {
 }
 
 export class Trainer {
-  private model: tf.Sequential | null = null;
+  private model: tf.LayersModel | null = null;
   private labels: string[] = [];
   private stopRequested: boolean = false;
-  private seed: number = 42; // Seed par défaut pour la reproductibilité
+  private seed: number = 42; // Default seed for reproducibility
 
   constructor() {
     this.labels = [
@@ -45,6 +45,7 @@ export class Trainer {
   }
 
   public dispose() {
+    this.stopRequested = true;
     if (this.model) {
       this.model.stopTraining = true;
       this.model.dispose();
@@ -53,66 +54,87 @@ export class Trainer {
   }
 
   /**
-   * Creates a lightweight CNN model suitable for Skyjo card recognition.
-   * Input: 224x224x3 (RGB images) - Restored to match original successful model
-   * Output: 15 classes (probabilities)
+   * Creates a model using Transfer Learning from MobileNet V1
+   * Input: 224x224x3
+   * Output: 15 classes
    */
-  public createModel(): tf.Sequential {
-    const model = tf.sequential();
+  public async createModel(
+    onLog?: (msg: string) => void
+  ): Promise<tf.LayersModel> {
+    try {
+      const msg = "Attempting to load MobileNet for Transfer Learning...";
+      console.log(msg);
+      if (onLog) onLog(msg);
 
-    // 1. Convolutional Layer 1
-    model.add(
-      tf.layers.conv2d({
-        inputShape: [224, 224, 3],
-        filters: 16,
-        kernelSize: 3,
-        activation: "relu",
-        padding: "same",
-      })
-    );
-    model.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
+      // Load MobileNet (alpha=0.25 for speed/size)
+      const mobilenet = await tf.loadLayersModel(
+        "https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json"
+      );
 
-    // 2. Convolutional Layer 2
-    model.add(
-      tf.layers.conv2d({
-        filters: 32,
-        kernelSize: 3,
-        activation: "relu",
-        padding: "same",
-      })
-    );
-    model.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
+      // Get the output of the internal layer
+      // We choose 'conv_pw_13_relu' which is a common cut-off point for MobileNetV1
+      const layer = mobilenet.getLayer("conv_pw_13_relu");
 
-    // 3. Convolutional Layer 3
-    model.add(
-      tf.layers.conv2d({
-        filters: 64,
-        kernelSize: 3,
-        activation: "relu",
-        padding: "same",
-      })
-    );
-    model.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
+      const successMsg = `MobileNet loaded. Adapting for ${this.labels.length} classes...`;
+      console.log(successMsg);
+      if (onLog) onLog(successMsg);
 
-    // 4. Flatten & Dense Layers
-    model.add(tf.layers.flatten());
-    model.add(tf.layers.dropout({ rate: 0.5 }));
-    model.add(tf.layers.dense({ units: 64, activation: "relu" }));
+      // Create a new model that outputs from the chosen layer
+      const trunk = tf.model({
+        inputs: mobilenet.inputs,
+        outputs: layer.output,
+      });
 
-    // Output Layer
-    model.add(
-      tf.layers.dense({ units: this.labels.length, activation: "softmax" })
-    );
+      // Freeze the trunk layers
+      for (const layer of trunk.layers) {
+        layer.trainable = false;
+      }
 
-    // Compile
-    model.compile({
-      optimizer: tf.train.adam(0.001),
-      loss: "categoricalCrossentropy",
-      metrics: ["accuracy"],
-    });
+      // Build the full model
+      const model = tf.sequential();
+      model.add(trunk);
+      model.add(tf.layers.flatten());
+      model.add(tf.layers.dense({ units: 100, activation: "relu" }));
+      model.add(
+        tf.layers.dense({ units: this.labels.length, activation: "softmax" })
+      );
 
-    this.model = model;
-    return model;
+      model.compile({
+        optimizer: tf.train.adam(0.0001), // Lower learning rate for transfer learning
+        loss: "categoricalCrossentropy",
+        metrics: ["accuracy"],
+      });
+
+      this.model = model;
+      return model;
+    } catch (e) {
+      console.error("Failed to load MobileNet, falling back to simple CNN", e);
+      // Fallback to simple CNN if internet fails
+      const model = tf.sequential();
+      model.add(
+        tf.layers.conv2d({
+          inputShape: [224, 224, 3],
+          filters: 16,
+          kernelSize: 3,
+          activation: "relu",
+          padding: "same",
+        })
+      );
+      model.add(tf.layers.maxPooling2d({ poolSize: 2, strides: 2 }));
+      model.add(tf.layers.flatten());
+      model.add(
+        tf.layers.dense({ units: this.labels.length, activation: "softmax" })
+      );
+
+      model.compile({
+        optimizer: tf.train.adam(0.001),
+        loss: "categoricalCrossentropy",
+        metrics: ["accuracy"],
+      });
+
+      this.model = model;
+      return model;
+    }
   }
 
   /**
@@ -310,19 +332,22 @@ export class Trainer {
       const batchSize = batch.shape[0];
       let aug = batch;
 
-      // 1. Random Brightness (+/- 10%)
-      // Generate [batch, 1, 1, 1] tensor for broadcasting
-      const brightness = tf.randomUniform([batchSize, 1, 1, 1], -0.1, 0.1);
+      // 1. Random Brightness (+/- 20%)
+      const brightness = tf.randomUniform([batchSize, 1, 1, 1], -0.2, 0.2);
       aug = aug.add(brightness).clipByValue(0, 1) as tf.Tensor4D;
 
-      // 2. Random Contrast (0.9 to 1.1)
-      // Formula: (x - 0.5) * contrast + 0.5
-      const contrast = tf.randomUniform([batchSize, 1, 1, 1], 0.9, 1.1);
+      // 2. Random Contrast (0.8 to 1.2)
+      const contrast = tf.randomUniform([batchSize, 1, 1, 1], 0.8, 1.2);
       aug = aug
         .sub(0.5)
         .mul(contrast)
         .add(0.5)
         .clipByValue(0, 1) as tf.Tensor4D;
+
+      // 3. Random Noise (Gaussian)
+      // Small noise to robustness
+      const noise = tf.randomNormal(aug.shape, 0, 0.02);
+      aug = aug.add(noise).clipByValue(0, 1) as tf.Tensor4D;
 
       return aug;
     });
@@ -338,13 +363,19 @@ export class Trainer {
     onEpochEnd?: (epoch: number, logs: tf.Logs | undefined) => void,
     onLog?: (message: string) => void
   ) {
-    if (!this.model) {
-      this.createModel();
+    // ALWAYS create/reset model at start of training to ensure fresh state (and load MobileNet)
+    if (this.model) {
+      this.model.dispose();
+      this.model = null;
     }
+    this.stopRequested = false;
+
+    await this.createModel(onLog);
 
     if (!this.model) throw new Error("Model creation failed");
 
-    const model = this.model; // Capture model locally to satisfy TS in callbacks
+    // Capture model locally to satisfy TS in callbacks
+    // const model = this.model;
 
     const numTrainSamples = trainData.xs.shape[0];
     const numValSamples = valData.xs.shape[0];
@@ -405,7 +436,7 @@ export class Trainer {
     let bestWeights: tf.NamedTensorMap | undefined;
 
     for (let epoch = 0; epoch < config.epochs; epoch++) {
-      if (this.model.stopTraining) break;
+      if (this.stopRequested) break;
 
       // --- TRAINING PHASE ---
       let trainEpochLoss = 0;
@@ -452,30 +483,41 @@ export class Trainer {
           // To implement weights, we need to use optimizer.minimize() with a custom loss function.
 
           const lossScalar = tf.tidy(() => {
-            const def = model.optimizer.minimize(() => {
-              const preds = model.predict(batchXsAugmented) as tf.Tensor;
+            if (!this.model) return tf.scalar(0);
+
+            const optimizer = this.model.optimizer;
+            const def = optimizer.minimize(() => {
+              if (!this.model) return tf.scalar(0); // Should not happen
+              const preds = this.model.predict(batchXsAugmented) as tf.Tensor;
               const loss = tf.losses.softmaxCrossEntropy(batchYs, preds);
               // Apply sample weights: loss * weights
               // Ensure dimensions match for broadcasting if needed
               return loss.mul(batchSampleWeights).mean();
             }, true); // true = return cost
-            return def;
+
+            // Handle null return from minimize (though rare if variables exist)
+            // tf.tidy requires a Tensor return, not null.
+            return def ? def : tf.scalar(0);
           });
 
           // Calculate accuracy for reporting
           const accScalar = tf.tidy(() => {
-            const preds = model.predict(batchXsAugmented) as tf.Tensor;
+            if (!this.model) return tf.scalar(0);
+            const preds = this.model.predict(batchXsAugmented) as tf.Tensor;
             const predLabels = preds.argMax(1);
             const trueLabels = batchYs.argMax(1);
             return predLabels.equal(trueLabels).cast("float32").mean();
           });
 
           if (lossScalar) {
-            lossVal = lossScalar.dataSync()[0];
+            // dataSync works on Tensor
+            const lossData = lossScalar.dataSync();
+            lossVal = lossData[0];
             lossScalar.dispose();
           }
           if (accScalar) {
-            accVal = accScalar.dataSync()[0];
+            const accData = accScalar.dataSync();
+            accVal = accData[0];
             accScalar.dispose();
           }
         } finally {
@@ -502,6 +544,8 @@ export class Trainer {
         await tf.nextFrame();
       }
 
+      if (this.stopRequested) break;
+
       const avgTrainLoss = trainEpochLoss / STEPS_PER_EPOCH;
       const avgTrainAcc = trainEpochAcc / STEPS_PER_EPOCH;
 
@@ -512,33 +556,35 @@ export class Trainer {
       const valSteps = Math.ceil(numValSamples / BATCH_SIZE);
 
       // No shuffling needed for validation, just iterate
-      for (let i = 0; i < numValSamples; i += BATCH_SIZE) {
-        const end = Math.min(i + BATCH_SIZE, numValSamples);
-        // Slice directly (faster than gather)
-        const batchValXs = valData.xs.slice(
-          [i, 0, 0, 0],
-          [end - i, 224, 224, 3]
-        );
-        const batchValYs = valData.ys.slice(
-          [i, 0],
-          [end - i, this.labels.length]
-        );
+      if (this.model && !this.stopRequested) {
+        for (let i = 0; i < numValSamples; i += BATCH_SIZE) {
+          const end = Math.min(i + BATCH_SIZE, numValSamples);
+          // Slice directly (faster than gather)
+          const batchValXs = valData.xs.slice(
+            [i, 0, 0, 0],
+            [end - i, 224, 224, 3]
+          );
+          const batchValYs = valData.ys.slice(
+            [i, 0],
+            [end - i, this.labels.length]
+          );
 
-        // Evaluate
-        const evalRes = this.model.evaluate(
-          batchValXs,
-          batchValYs
-        ) as tf.Scalar[];
-        const vLoss = evalRes[0].dataSync()[0];
-        const vAcc = evalRes[1].dataSync()[0];
+          // Evaluate
+          const evalRes = (this.model as tf.LayersModel).evaluate(
+            batchValXs,
+            batchValYs
+          ) as tf.Scalar[];
+          const vLoss = evalRes[0].dataSync()[0];
+          const vAcc = evalRes[1].dataSync()[0];
 
-        valEpochLoss += vLoss;
-        valEpochAcc += vAcc;
+          valEpochLoss += vLoss;
+          valEpochAcc += vAcc;
 
-        // Cleanup
-        batchValXs.dispose();
-        batchValYs.dispose();
-        evalRes.forEach((t) => t.dispose());
+          // Cleanup
+          batchValXs.dispose();
+          batchValYs.dispose();
+          evalRes.forEach((t) => t.dispose());
+        }
       }
 
       const avgValLoss = valEpochLoss / valSteps;
@@ -567,9 +613,11 @@ export class Trainer {
             tf.dispose(bestWeights);
           }
           bestWeights = {};
-          this.model.getWeights().forEach((w, i) => {
-            bestWeights![i] = w.clone();
-          });
+          if (this.model) {
+            (this.model as tf.LayersModel).getWeights().forEach((w, i) => {
+              bestWeights![i] = w.clone();
+            });
+          }
         } else {
           // No improvement
           patienceCount++;
@@ -589,14 +637,17 @@ export class Trainer {
             this.stopRequested = true;
 
             // Restore best weights
-            if (bestWeights) {
+            if (bestWeights && this.model) {
               const weightArray: tf.Tensor[] = [];
               Object.keys(bestWeights)
                 .sort((a, b) => Number(a) - Number(b))
                 .forEach((key) => {
                   weightArray.push(bestWeights![key]);
                 });
-              this.model.setWeights(weightArray);
+              if (this.model) {
+                // Ensure model is not null before calling setWeights
+                (this.model as tf.LayersModel).setWeights(weightArray);
+              }
               const restoreMsg = `♻️ Restored model to best val_loss: ${bestValLoss.toFixed(
                 4
               )}`;
