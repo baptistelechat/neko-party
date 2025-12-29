@@ -1,9 +1,32 @@
 --------------------------------------------------
-Epoch: 18
-Loss: 0.0002 (Validation: 0.0609)
-Accuracy: 100.0% (Validation: 98.4%)
-Duration: 2h 37m 23s
+Epoch: 11
+Loss: 0.0003 (Validation: 0.0501)
+Accuracy: 100.0% (Validation: 98.7%)
+Duration: 1h 25m 9s
 --------------------------------------------------
+
+📊 Confusion Matrix Analysis
+============================
+
+✅ No major confusions detected (>5%).
+
+📈 Full Matrix (Rows=True, Cols=Pred)
+        -2   -1    0    1    2    3    4    5    6    7    8    9   10   11   12
+  -2 |  20    0    0    0    0    0    0    0    0    0    0    0    0    0    0 
+  -1 |   0   20    0    0    0    0    0    0    0    0    0    0    0    0    0 
+   0 |   0    0   20    0    0    0    0    0    0    0    0    0    0    0    0 
+   1 |   0    0    0   20    0    0    0    0    0    0    0    0    0    0    0 
+   2 |   0    0    0    0   19    0    1    0    0    0    0    0    0    0    0 
+   3 |   0    0    0    0    1   18    1    0    0    0    0    0    0    0    0 
+   4 |   0    0    0    0    0    0   20    0    0    0    0    0    0    0    0 
+   5 |   0    0    0    0    0    0    0   20    0    0    0    0    0    0    0 
+   6 |   0    0    0    0    0    0    0    0   20    0    0    0    0    0    0 
+   7 |   0    0    0    0    0    0    0    0    0   20    0    0    0    0    0 
+   8 |   0    0    0    0    0    0    0    0    0    0   20    0    0    0    0 
+   9 |   0    0    0    0    0    0    0    0    0    0    0   20    0    0    0 
+  10 |   0    0    0    0    0    0    0    0    0    0    0    0   20    0    0 
+  11 |   0    0    0    0    0    0    0    0    0    0    0    0    0   20    0 
+  12 |   0    0    0    0    0    0    0    0    0    0    0    0    0    0   20 
 
 📊 Dataset Distribution:
 Class | Total | Train | Val
@@ -25,21 +48,14 @@ Class | Total | Train | Val
 12    | 100   | 80    | 20   
 -------------------------------
 
-Epoch 1: Train [loss=0.9822, accuracy=0.8000] | Validation [loss=0.4213, accuracy=0.8607]
-Epoch 2: Train [loss=0.0873, accuracy=0.9950] | Validation [loss=0.1756, accuracy=0.9386]
-Epoch 3: Train [loss=0.0145, accuracy=1.0000] | Validation [loss=0.0696, accuracy=0.9803]
-Epoch 4: Train [loss=0.0069, accuracy=1.0000] | Validation [loss=0.1555, accuracy=0.9539]
-Epoch 5: Train [loss=0.0034, accuracy=1.0000] | Validation [loss=0.0649, accuracy=0.9836]
-Epoch 6: Train [loss=0.0011, accuracy=1.0000] | Validation [loss=0.0598, accuracy=0.9868]
-Epoch 7: Train [loss=0.0011, accuracy=1.0000] | Validation [loss=0.0604, accuracy=0.9836]
-Epoch 8: Train [loss=0.0007, accuracy=1.0000] | Validation [loss=0.0580, accuracy=0.9836]
-Epoch 9: Train [loss=0.0006, accuracy=1.0000] | Validation [loss=0.0574, accuracy=0.9868]
-Epoch 10: Train [loss=0.0005, accuracy=1.0000] | Validation [loss=0.0582, accuracy=0.9836]
-Epoch 11: Train [loss=0.0004, accuracy=1.0000] | Validation [loss=0.0580, accuracy=0.9836]
-Epoch 12: Train [loss=0.0004, accuracy=1.0000] | Validation [loss=0.0605, accuracy=0.9868]
-Epoch 13: Train [loss=0.0004, accuracy=1.0000] | Validation [loss=0.0588, accuracy=0.9868]
-Epoch 14: Train [loss=0.0003, accuracy=1.0000] | Validation [loss=0.0621, accuracy=0.9836]
-Epoch 15: Train [loss=0.0003, accuracy=1.0000] | Validation [loss=0.0655, accuracy=0.9836]
-Epoch 16: Train [loss=0.0003, accuracy=1.0000] | Validation [loss=0.0576, accuracy=0.9836]
-Epoch 17: Train [loss=0.0003, accuracy=1.0000] | Validation [loss=0.0609, accuracy=0.9836]
-Epoch 18: Train [loss=0.0002, accuracy=1.0000] | Validation [loss=0.0609, accuracy=0.9836]
+Epoch 1: Train [loss=1.0783, accuracy=0.7808] | Validation [loss=0.2571, accuracy=0.9441]
+Epoch 2: Train [loss=0.0713, accuracy=0.9992] | Validation [loss=0.1977, accuracy=0.9463]
+Epoch 3: Train [loss=0.0358, accuracy=1.0000] | Validation [loss=0.0921, accuracy=0.9737]
+Epoch 4: Train [loss=0.0295, accuracy=1.0000] | Validation [loss=0.0678, accuracy=0.9901]
+Epoch 5: Train [loss=0.0028, accuracy=1.0000] | Validation [loss=0.0517, accuracy=0.9901]
+Epoch 6: Train [loss=0.0011, accuracy=1.0000] | Validation [loss=0.0480, accuracy=0.9901]
+Epoch 7: Train [loss=0.0007, accuracy=1.0000] | Validation [loss=0.0507, accuracy=0.9901]
+Epoch 8: Train [loss=0.0006, accuracy=1.0000] | Validation [loss=0.0472, accuracy=0.9901]
+Epoch 9: Train [loss=0.0005, accuracy=1.0000] | Validation [loss=0.0480, accuracy=0.9901]
+Epoch 10: Train [loss=0.0004, accuracy=1.0000] | Validation [loss=0.0511, accuracy=0.9901]
+Epoch 11: Train [loss=0.0003, accuracy=1.0000] | Validation [loss=0.0501, accuracy=0.9868]

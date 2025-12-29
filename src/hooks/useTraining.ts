@@ -1,4 +1,8 @@
-import { Trainer, TrainingConfig } from "@/modules/training/Trainer";
+import {
+  ConfusionMatrixResult,
+  Trainer,
+  TrainingConfig,
+} from "@/modules/training/Trainer";
 import * as tf from "@tensorflow/tfjs";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -41,6 +45,8 @@ export const useTraining = () => {
   const [history, setHistory] = useState<TrainingProgress[]>([]);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isModelReady, setIsModelReady] = useState(false);
+  const [confusionMatrix, setConfusionMatrix] =
+    useState<ConfusionMatrixResult | null>(null);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const trainerRef = useRef<Trainer>(new Trainer());
@@ -218,6 +224,57 @@ export const useTraining = () => {
           setDatasetStats(stats);
         }
 
+        // Parse Confusion Matrix from logs
+        let matrix: number[][] = [];
+        let labels: string[] = [];
+        let inMatrix = false;
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.includes("📈 Full Matrix (Rows=True, Cols=Pred)")) {
+            inMatrix = true;
+            // Next line is labels
+            if (i + 1 < lines.length) {
+              const labelLine = lines[i + 1].trim();
+              labels = labelLine.split(/\s+/);
+              i++; // Skip label line
+            }
+            continue;
+          }
+
+          if (inMatrix) {
+            if (line.trim() === "") {
+              inMatrix = false;
+              continue;
+            }
+            
+            const parts = line.split("|");
+            if (parts.length === 2) {
+              // Part 0 is row label, Part 1 is values
+              const valuesStr = parts[1].trim();
+              const rowValues = valuesStr.split(/\s+/).map(v => parseInt(v));
+              if (rowValues.length === labels.length) {
+                matrix.push(rowValues);
+              }
+            }
+          }
+        }
+
+        if (matrix.length > 0 && labels.length > 0) {
+          // Calculate normalized matrix
+          const normalized = matrix.map((row) => {
+            const sum = row.reduce((a, b) => a + b, 0);
+            return row.map((val) => (sum > 0 ? val / sum : 0));
+          });
+          
+          setConfusionMatrix({
+            matrix,
+            normalized,
+            labels
+          });
+          setIsModelReady(true); // Assume model is ready if we have stats and matrix
+        }
+
         // Set the logs to the file content
         setLogs(lines);
       } else {
@@ -353,6 +410,41 @@ export const useTraining = () => {
         }
       );
 
+      // Generate Confusion Matrix
+      const cm = await trainerRef.current.generateConfusionMatrix(valData!);
+      setConfusionMatrix(cm);
+
+      // Log significant errors to the console logs for persistence
+      const errorReport = cm.normalized
+        .flatMap((row, i) =>
+          row.map((val, j) => ({
+            from: cm.labels[i],
+            to: cm.labels[j],
+            percent: val,
+          }))
+        )
+        .filter((item) => item.from !== item.to && item.percent > 0.05)
+        .sort((a, b) => b.percent - a.percent);
+
+      if (errorReport.length > 0) {
+        let reportLog = "\n⚠️ TOP CONFUSIONS (>5%):\n";
+        reportLog += "-------------------------\n";
+        errorReport.forEach((err) => {
+          reportLog += `${err.from.padEnd(4)} -> ${err.to.padEnd(4)} : ${(
+            err.percent * 100
+          ).toFixed(1)}%\n`;
+        });
+        reportLog += "-------------------------\n";
+        setLogs((prev) => [...prev, reportLog]);
+      } else {
+        setLogs((prev) => [
+          ...prev,
+          "\n✅ Aucune confusion majeure détectée (>5%).\n",
+        ]);
+      }
+
+      setLogs((prev) => [...prev, "Confusion Matrix Generated 📊"]);
+
       setIsModelReady(true);
       setLogs((prev) => [...prev, "Training Complete! ✅"]);
     } catch (err: unknown) {
@@ -385,7 +477,10 @@ export const useTraining = () => {
   const exportModel = async (elapsedTime?: string) => {
     if (!trainerRef.current) return;
     try {
-      await trainerRef.current.exportModel(elapsedTime);
+      await trainerRef.current.exportModel(
+        elapsedTime,
+        confusionMatrix || undefined
+      );
       toast.success("Modèle téléchargé !");
     } catch (e) {
       console.error(e);
@@ -402,6 +497,7 @@ export const useTraining = () => {
     history,
     elapsedTime,
     isModelReady,
+    confusionMatrix,
     handleFileChange,
     loadDefaultDataset,
     startTraining,

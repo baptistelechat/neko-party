@@ -15,7 +15,15 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/ui/chart";
-import { CartesianGrid, Label, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Label,
+  Line,
+  LineChart,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 interface TrainingChartsProps {
   data: TrainingProgress[];
@@ -60,90 +68,6 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {/* Accuracy Chart */}
-      <Card className="bg-zinc-800 border-zinc-700 text-white">
-        <CardHeader>
-          <CardTitle>Accuracy (Train vs Validation)</CardTitle>
-          <CardDescription className="text-zinc-400">
-            Monitor for divergence (Overfitting if Train &gt; Validation)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ChartContainer
-            config={accuracyConfig}
-            className="aspect-auto h-62.5 w-full"
-          >
-            <LineChart
-              accessibilityLayer
-              data={data}
-              margin={{
-                left: 12,
-                right: 12,
-              }}
-            >
-              <CartesianGrid vertical={false} stroke="#3f3f46" />
-              <XAxis
-                dataKey="epoch"
-                tickLine={false}
-                axisLine={false}
-                tickMargin={8}
-                stroke="#a1a1aa"
-                tick={{ fill: "#a1a1aa" }}
-              />
-              <YAxis hide domain={[0, 1]} />
-              {bestEpoch > 0 && (
-                <ReferenceLine
-                  x={bestEpoch}
-                  stroke="#facc15"
-                  strokeDasharray="3 3"
-                >
-                  <Label
-                    value="Best"
-                    position="insideTopLeft"
-                    fill="#facc15"
-                    fontSize={12}
-                  />
-                </ReferenceLine>
-              )}
-              <ChartTooltip
-                cursor={false}
-                content={
-                  <ChartTooltipContent className="bg-zinc-900 border-zinc-700 [&_.text-foreground]:text-white [&_.text-muted-foreground]:text-zinc-400" />
-                }
-              />
-              <Line
-                dataKey="acc"
-                type="monotone"
-                stroke="var(--color-acc)"
-                strokeWidth={2}
-                dot={false}
-              />
-              <Line
-                dataKey="val_acc"
-                type="monotone"
-                stroke="var(--color-val_acc)"
-                strokeWidth={2}
-                strokeDasharray="4 4"
-                dot={false}
-              />
-            </LineChart>
-          </ChartContainer>
-        </CardContent>
-        <CardFooter className="flex-col items-start gap-2 text-sm text-zinc-400">
-          <div className="flex gap-4 w-full">
-            <div className="flex gap-2 items-center">
-              <div className="w-3 h-3 rounded-full bg-green-400"></div>
-              Train: {(lastAcc * 100).toFixed(1)}%
-            </div>
-            <div className="flex gap-2 items-center text-green-300 opacity-70">
-              <div className="w-3 h-3 rounded-full border-2 border-green-300 border-dashed bg-transparent"></div>
-              Validation: {(lastValAcc * 100).toFixed(1)}%
-            </div>
-          </div>
-          <div className="leading-none">Higher is better</div>
-        </CardFooter>
-      </Card>
-
       {/* Loss Chart */}
       <Card className="bg-zinc-800 border-zinc-700 text-white">
         <CardHeader>
@@ -225,6 +149,90 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
             </div>
           </div>
           <div className="leading-none">Lower is better</div>
+        </CardFooter>
+      </Card>
+
+      {/* Accuracy Chart */}
+      <Card className="bg-zinc-800 border-zinc-700 text-white">
+        <CardHeader>
+          <CardTitle>Accuracy (Train vs Validation)</CardTitle>
+          <CardDescription className="text-zinc-400">
+            Monitor for divergence (Overfitting if Train &gt; Validation)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer
+            config={accuracyConfig}
+            className="aspect-auto h-62.5 w-full"
+          >
+            <LineChart
+              accessibilityLayer
+              data={data}
+              margin={{
+                left: 12,
+                right: 12,
+              }}
+            >
+              <CartesianGrid vertical={false} stroke="#3f3f46" />
+              <XAxis
+                dataKey="epoch"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                stroke="#a1a1aa"
+                tick={{ fill: "#a1a1aa" }}
+              />
+              <YAxis hide domain={[0, 1]} />
+              {bestEpoch > 0 && (
+                <ReferenceLine
+                  x={bestEpoch}
+                  stroke="#facc15"
+                  strokeDasharray="3 3"
+                >
+                  <Label
+                    value="Best"
+                    position="insideTopLeft"
+                    fill="#facc15"
+                    fontSize={12}
+                  />
+                </ReferenceLine>
+              )}
+              <ChartTooltip
+                cursor={false}
+                content={
+                  <ChartTooltipContent className="bg-zinc-900 border-zinc-700 [&_.text-foreground]:text-white [&_.text-muted-foreground]:text-zinc-400" />
+                }
+              />
+              <Line
+                dataKey="acc"
+                type="monotone"
+                stroke="var(--color-acc)"
+                strokeWidth={2}
+                dot={false}
+              />
+              <Line
+                dataKey="val_acc"
+                type="monotone"
+                stroke="var(--color-val_acc)"
+                strokeWidth={2}
+                strokeDasharray="4 4"
+                dot={false}
+              />
+            </LineChart>
+          </ChartContainer>
+        </CardContent>
+        <CardFooter className="flex-col items-start gap-2 text-sm text-zinc-400">
+          <div className="flex gap-4 w-full">
+            <div className="flex gap-2 items-center">
+              <div className="w-3 h-3 rounded-full bg-green-400"></div>
+              Train: {(lastAcc * 100).toFixed(1)}%
+            </div>
+            <div className="flex gap-2 items-center text-green-300 opacity-70">
+              <div className="w-3 h-3 rounded-full border-2 border-green-300 border-dashed bg-transparent"></div>
+              Validation: {(lastValAcc * 100).toFixed(1)}%
+            </div>
+          </div>
+          <div className="leading-none">Higher is better</div>
         </CardFooter>
       </Card>
     </div>

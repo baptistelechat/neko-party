@@ -13,7 +13,6 @@ import {
 } from "@/ui/alert-dialog";
 import { Button } from "@/ui/button";
 import {
-  Copy,
   Download,
   FileText,
   Loader2,
@@ -25,8 +24,8 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { ConfusionMatrix } from "@/ui/components/ConfusionMatrix";
 import { TrainingCharts } from "@/ui/components/TrainingCharts";
-import { toast } from "sonner";
 
 export default function TrainingPage() {
   const {
@@ -38,6 +37,7 @@ export default function TrainingPage() {
     history,
     elapsedTime,
     isModelReady,
+    confusionMatrix,
     handleFileChange,
     loadDefaultDataset,
     startTraining,
@@ -54,12 +54,6 @@ export default function TrainingPage() {
   }, [logs]);
 
   const [showStopDialog, setShowStopDialog] = useState(false);
-
-  const handleCopyLogs = () => {
-    const summary = logs.join("\n");
-    navigator.clipboard.writeText(summary);
-    toast.success("Logs copiés dans le presse-papier !");
-  };
 
   const handleStopTraining = () => {
     stopTraining();
@@ -211,14 +205,6 @@ export default function TrainingPage() {
           <div className="lg:col-span-2 bg-zinc-950 rounded-lg overflow-hidden border border-zinc-800 shadow-inner flex flex-col">
             <div className="flex items-center justify-between bg-zinc-900 px-3 py-2 border-b border-zinc-800">
               <span className="text-xs font-bold text-zinc-300">Logs</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-6"
-                onClick={handleCopyLogs}
-              >
-                <Copy className="size-1" />
-              </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-3 font-mono text-xs">
               {logs.map((log, i) => {
@@ -254,7 +240,7 @@ export default function TrainingPage() {
             <div className="overflow-y-auto flex-1 p-2">
               {datasetStats.length === 0 ? (
                 <div className="text-zinc-500 text-center italic mt-10">
-                  Waiting for data...
+                  Aucune données disponible
                 </div>
               ) : (
                 <table className="w-full text-left border-collapse text-xs">
@@ -297,6 +283,13 @@ export default function TrainingPage() {
         {history.length > 0 && (
           <div className="mt-4">
             <TrainingCharts data={history} />
+          </div>
+        )}
+
+        {/* Confusion Matrix */}
+        {confusionMatrix && (
+          <div className="mt-4">
+            <ConfusionMatrix data={confusionMatrix} />
           </div>
         )}
       </div>

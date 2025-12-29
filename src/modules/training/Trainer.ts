@@ -11,6 +11,12 @@ export interface TrainingConfig {
   };
 }
 
+export interface ConfusionMatrixResult {
+  matrix: number[][];
+  normalized: number[][];
+  labels: string[];
+}
+
 export class Trainer {
   private model: tf.LayersModel | null = null;
   private labels: string[] = [];
@@ -714,11 +720,59 @@ export class Trainer {
   }
 
   /**
+   * Generates a Confusion Matrix from the validation set.
+   */
+  public async generateConfusionMatrix(valData: {
+    xs: tf.Tensor4D;
+    ys: tf.Tensor2D;
+  }): Promise<ConfusionMatrixResult> {
+    if (!this.model) throw new Error("Model not trained");
+
+    console.log("📊 Generating Confusion Matrix...");
+
+    const matrixTensor = tf.tidy(() => {
+      // 1. Predict
+      const predictions = this.model!.predict(valData.xs) as tf.Tensor;
+      
+      // 2. Extract Labels
+      const predLabels = predictions.argMax(1) as tf.Tensor1D;
+      const trueLabels = valData.ys.argMax(1) as tf.Tensor1D;
+
+      // 3. Compute Matrix
+      return tf.math.confusionMatrix(
+        trueLabels,
+        predLabels,
+        this.labels.length
+      );
+    });
+
+    // 4. Download to CPU
+    const matrix = (await matrixTensor.array()) as number[][];
+    matrixTensor.dispose(); // Manual dispose since it escaped tidy
+
+    // 5. Normalize (Row-wise)
+    const normalized = matrix.map((row) => {
+      const sum = row.reduce((a, b) => a + b, 0);
+      return row.map((val) => (sum > 0 ? val / sum : 0));
+    });
+
+    return {
+      matrix,
+      normalized,
+      labels: this.labels,
+    };
+  }
+
+  /**
    * Exports the trained model as a single ZIP file containing:
    * - neko-skyjo-model.json
    * - neko-skyjo-model.weights.bin
+   * - neko-skyjo-model-logs.txt
    */
-  public async exportModel(elapsedTime?: string) {
+  public async exportModel(
+    elapsedTime?: string,
+    confusionMatrix?: ConfusionMatrixResult
+  ) {
     if (!this.model) throw new Error("No model to export");
 
     // 1. Save to IO Handler in memory
@@ -769,6 +823,54 @@ export class Trainer {
             logContent += `Duration: ${elapsedTime}\n`;
           }
           logContent += `--------------------------------------------------\n\n`;
+
+          // Add Confusion Matrix Analysis
+          if (confusionMatrix) {
+            const { matrix, normalized, labels } = confusionMatrix;
+
+            logContent += `📊 Confusion Matrix Analysis\n`;
+            logContent += `============================\n\n`;
+
+            // 1. Top Confusions
+            const errors = normalized
+              .flatMap((row, i) =>
+                row.map((val, j) => ({
+                  from: labels[i],
+                  to: labels[j],
+                  percent: val,
+                  count: matrix[i][j],
+                }))
+              )
+              .filter((e) => e.from !== e.to && e.percent > 0.05) // Filter > 5%
+              .sort((a, b) => b.percent - a.percent);
+
+            if (errors.length > 0) {
+              logContent += `⚠️ MAJOR CONFUSIONS (>5%):\n`;
+              logContent += `-------------------------\n`;
+              errors.forEach((e) => {
+                logContent += `${e.from.padEnd(4)} -> ${e.to.padEnd(
+                  4
+                )} : ${(e.percent * 100).toFixed(1)}% (${e.count} errors)\n`;
+              });
+              logContent += `-------------------------\n\n`;
+            } else {
+              logContent += `✅ No major confusions detected (>5%).\n\n`;
+            }
+
+            // 2. Full Matrix (ASCII Art style)
+            logContent += `📈 Full Matrix (Rows=True, Cols=Pred)\n`;
+            // Header
+            logContent += `      ` + labels.map((l) => l.padStart(4)).join(" ") + "\n";
+            // Rows
+            matrix.forEach((row, i) => {
+              logContent += `${labels[i].padStart(4)} |`;
+              row.forEach((val) => {
+                logContent += val.toString().padStart(4) + " ";
+              });
+              logContent += "\n";
+            });
+            logContent += "\n";
+          }
 
           // Add Dataset Stats
           if (this.lastDatasetStats.length > 0) {
