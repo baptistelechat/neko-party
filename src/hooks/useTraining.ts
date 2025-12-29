@@ -225,7 +225,7 @@ export const useTraining = () => {
         }
 
         // Parse Confusion Matrix from logs
-        let matrix: number[][] = [];
+        const matrix: number[][] = [];
         let labels: string[] = [];
         let inMatrix = false;
 
