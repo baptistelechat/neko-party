@@ -506,7 +506,7 @@ export class Trainer {
             const def = optimizer.minimize(() => {
               if (!this.model) return tf.scalar(0); // Should not happen
               const preds = this.model.predict(batchXsAugmented) as tf.Tensor;
-              const loss = tf.losses.softmaxCrossEntropy(batchYs, preds);
+              const loss = tf.metrics.categoricalCrossentropy(batchYs, preds);
               // Apply sample weights: loss * weights
               // Ensure dimensions match for broadcasting if needed
               return loss.mul(batchSampleWeights).mean();
@@ -718,7 +718,7 @@ export class Trainer {
    * - neko-skyjo-model.json
    * - neko-skyjo-model.weights.bin
    */
-  public async exportModel() {
+  public async exportModel(elapsedTime?: string) {
     if (!this.model) throw new Error("No model to export");
 
     // 1. Save to IO Handler in memory
@@ -765,6 +765,9 @@ export class Trainer {
           logContent += `Accuracy: ${(lastEntry.acc * 100).toFixed(
             1
           )}% (Validation: ${(lastEntry.val_acc * 100).toFixed(1)}%)\n`;
+          if (elapsedTime) {
+            logContent += `Duration: ${elapsedTime}\n`;
+          }
           logContent += `--------------------------------------------------\n\n`;
 
           // Add Dataset Stats

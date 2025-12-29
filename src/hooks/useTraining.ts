@@ -324,7 +324,7 @@ export const useTraining = () => {
         batchSize: 16, // Augmenté de 8 à 16 pour stabiliser le gradient
         earlyStopping: {
           enabled: true,
-          patience: 15, // Augmenté de 5 à 15
+          patience: 5,
           minDelta: 0.001,
         },
       };
@@ -382,13 +382,14 @@ export const useTraining = () => {
     }
   };
 
-  const exportModel = async () => {
+  const exportModel = async (elapsedTime?: string) => {
+    if (!trainerRef.current) return;
     try {
-      await trainerRef.current.exportModel();
-      setLogs((prev) => [...prev, "Model exported to downloads folder."]);
-    } catch (err) {
-      console.error(err);
-      setLogs((prev) => [...prev, "Export failed."]);
+      await trainerRef.current.exportModel(elapsedTime);
+      toast.success("Modèle téléchargé !");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erreur lors de l'export");
     }
   };
 

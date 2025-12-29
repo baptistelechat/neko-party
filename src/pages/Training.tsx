@@ -66,6 +66,17 @@ export default function TrainingPage() {
     setShowStopDialog(false);
   };
 
+  const formatTime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h}h ${m}m ${s}s`;
+  };
+
+  const handleExport = () => {
+    exportModel(formatTime(elapsedTime));
+  };
+
   return (
     <div className="p-6 bg-zinc-900 min-h-screen text-white flex flex-col gap-6">
       <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -223,10 +234,7 @@ export default function TrainingPage() {
                   log.includes("Manifest")
                 )
                   colorClass = "text-green-500";
-                if (
-                  log.includes("MobileNet")
-                )
-                  colorClass = "text-indigo-500";
+                if (log.includes("MobileNet")) colorClass = "text-indigo-500";
 
                 return (
                   <div key={i} className={`${colorClass} mb-1`}>
@@ -296,7 +304,7 @@ export default function TrainingPage() {
       <div className="bg-zinc-800 p-4 rounded-lg border border-zinc-700">
         <h2 className="font-bold mb-4">3. Exporter</h2>
         <Button
-          onClick={exportModel}
+          onClick={handleExport}
           disabled={!isModelReady}
           className="bg-green-600 hover:bg-green-700"
         >
