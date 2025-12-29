@@ -16,6 +16,20 @@ export class Trainer {
   private labels: string[] = [];
   private stopRequested: boolean = false;
   private seed: number = 42; // Default seed for reproducibility
+  private lastTrainingHistory: Array<{
+    epoch: number;
+    loss: number;
+    acc: number;
+    val_loss: number;
+    val_acc: number;
+  }> = [];
+
+  private lastDatasetStats: Array<{
+    Class: string;
+    Total: number;
+    Train: number;
+    Val: number;
+  }> = [];
 
   constructor() {
     this.labels = [
@@ -288,6 +302,8 @@ export class Trainer {
     });
 
     stats.push(...statsTable);
+    this.lastDatasetStats = stats; // Save for export
+
     console.table(statsTable);
     console.groupEnd();
 
@@ -369,6 +385,7 @@ export class Trainer {
       this.model = null;
     }
     this.stopRequested = false;
+    this.lastTrainingHistory = [];
 
     await this.createModel(onLog);
 
@@ -601,6 +618,15 @@ export class Trainer {
       console.log(logMsg);
       if (onLog) onLog(logMsg);
 
+      // Save to history
+      this.lastTrainingHistory.push({
+        epoch: epoch + 1,
+        loss: avgTrainLoss,
+        acc: avgTrainAcc,
+        val_loss: avgValLoss,
+        val_acc: avgValAcc,
+      });
+
       // --- Early Stopping Check (Based on Val Loss) ---
       if (config.earlyStopping?.enabled) {
         if (avgValLoss < bestValLoss - config.earlyStopping.minDelta) {
@@ -725,6 +751,50 @@ export class Trainer {
             "neko-skyjo-model.weights.bin",
             artifacts.weightData as ArrayBuffer
           );
+        }
+
+        // Add Training History (Logs only)
+        if (this.lastTrainingHistory.length > 0) {
+          const lastEntry =
+            this.lastTrainingHistory[this.lastTrainingHistory.length - 1];
+          let logContent = `--------------------------------------------------\n`;
+          logContent += `Epoch: ${lastEntry.epoch}\n`;
+          logContent += `Loss: ${lastEntry.loss.toFixed(
+            4
+          )} (Validation: ${lastEntry.val_loss.toFixed(4)})\n`;
+          logContent += `Accuracy: ${(lastEntry.acc * 100).toFixed(
+            1
+          )}% (Validation: ${(lastEntry.val_acc * 100).toFixed(1)}%)\n`;
+          logContent += `--------------------------------------------------\n\n`;
+
+          // Add Dataset Stats
+          if (this.lastDatasetStats.length > 0) {
+            logContent += "📊 Dataset Distribution:\n";
+            logContent += "Class | Total | Train | Val\n";
+            logContent += "-------------------------------\n";
+            this.lastDatasetStats.forEach((s) => {
+              logContent += `${s.Class.padEnd(5)} | ${s.Total.toString().padEnd(
+                5
+              )} | ${s.Train.toString().padEnd(5)} | ${s.Val.toString().padEnd(
+                5
+              )}\n`;
+            });
+            logContent += "-------------------------------\n\n";
+          }
+
+          this.lastTrainingHistory.forEach((entry) => {
+            logContent += `Epoch ${
+              entry.epoch
+            }: Train [loss=${entry.loss.toFixed(
+              4
+            )}, accuracy=${entry.acc.toFixed(
+              4
+            )}] | Validation [loss=${entry.val_loss.toFixed(
+              4
+            )}, accuracy=${entry.val_acc.toFixed(4)}]\n`;
+          });
+
+          zip.file("neko-skyjo-model-logs.txt", logContent);
         }
 
         // Generate ZIP blob

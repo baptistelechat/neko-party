@@ -1,6 +1,7 @@
 import { Trainer, TrainingConfig } from "@/modules/training/Trainer";
 import * as tf from "@tensorflow/tfjs";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 export interface TrainingProgress {
   epoch: number;
@@ -154,6 +155,98 @@ export const useTraining = () => {
     }
   };
 
+  const importHistory = async (file: File) => {
+    try {
+      const text = await file.text();
+      const newHistory: TrainingProgress[] = [];
+
+      if (file.name.endsWith(".txt")) {
+        const lines = text.split("\n");
+        const regex =
+          /Epoch (\d+): Train \[loss=([\d.]+), accuracy=([\d.]+)\] \| Validation \[loss=([\d.]+), accuracy=([\d.]+)\]/;
+
+        lines.forEach((line) => {
+          const match = line.match(regex);
+          if (match) {
+            newHistory.push({
+              epoch: parseInt(match[1]),
+              loss: parseFloat(match[2]),
+              acc: parseFloat(match[3]),
+              val_loss: parseFloat(match[4]),
+              val_acc: parseFloat(match[5]),
+            });
+          }
+        });
+
+        // Parse Dataset Stats from logs
+        const stats: DatasetStat[] = [];
+        let inStats = false;
+
+        for (const line of lines) {
+          if (line.includes("📊 Dataset Distribution:")) {
+            inStats = true;
+            continue;
+          }
+          if (inStats) {
+            if (line.includes("Class | Total")) continue;
+            if (line.includes("---")) {
+              // End of table if we already have stats
+              if (stats.length > 0) inStats = false;
+              continue;
+            }
+            if (line.trim() === "") {
+              inStats = false;
+              continue;
+            }
+
+            const parts = line.split("|").map((s) => s.trim());
+            if (parts.length === 4) {
+              const stat: DatasetStat = {
+                Class: parts[0],
+                Total: parseInt(parts[1]) || 0,
+                Train: parseInt(parts[2]) || 0,
+                Val: parseInt(parts[3]) || 0,
+              };
+              if (!isNaN(stat.Total)) {
+                stats.push(stat);
+              }
+            }
+          }
+        }
+
+        if (stats.length > 0) {
+          setDatasetStats(stats);
+        }
+
+        // Set the logs to the file content
+        setLogs(lines);
+      } else {
+        throw new Error(
+          "Format de fichier non supporté. Utilisez uniquement le fichier de logs .txt"
+        );
+      }
+
+      if (newHistory.length === 0) {
+        throw new Error("Aucune donnée d'historique trouvée dans le fichier.");
+      }
+
+      setHistory(newHistory);
+      const lastEntry = newHistory[newHistory.length - 1];
+      setProgress(lastEntry);
+
+      // Removed the generic "Historique importé" log since we replaced logs with file content
+      toast.success("Historique importé avec succès !");
+    } catch (err) {
+      console.error(err);
+      setLogs((prev) => [
+        ...prev,
+        `Erreur import historique: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      ]);
+    }
+  };
+
   const stopTraining = () => {
     trainerRef.current.stop();
     setLogs((prev) => [...prev, "Stopping training..."]);
@@ -204,6 +297,20 @@ export const useTraining = () => {
       valData = splitData.val;
       if (splitData.stats) {
         setDatasetStats(splitData.stats);
+
+        // Log stats table for export/import
+        let statsLog =
+          "\n📊 Dataset Distribution:\nClass | Total | Train | Val\n";
+        statsLog += "-------------------------------\n";
+        splitData.stats.forEach((s) => {
+          statsLog += `${s.Class.padEnd(5)} | ${s.Total.toString().padEnd(
+            5
+          )} | ${s.Train.toString().padEnd(5)} | ${s.Val.toString().padEnd(
+            5
+          )}\n`;
+        });
+        statsLog += "-------------------------------\n";
+        setLogs((prev) => [...prev, statsLog]);
       }
 
       setLogs((prev) => [
@@ -299,5 +406,6 @@ export const useTraining = () => {
     startTraining,
     stopTraining,
     exportModel,
+    importHistory,
   };
 };

@@ -15,6 +15,7 @@ import { Button } from "@/ui/button";
 import {
   Copy,
   Download,
+  FileText,
   Loader2,
   Package,
   Play,
@@ -42,6 +43,7 @@ export default function TrainingPage() {
     startTraining,
     stopTraining,
     exportModel,
+    importHistory,
   } = useTraining();
 
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -87,6 +89,21 @@ export default function TrainingPage() {
               multiple
               accept=".zip"
               onChange={handleFileChange}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+            />
+          </Button>
+
+          <Button variant="secondary" className="relative">
+            <FileText className="mr-2 h-4 w-4" />
+            Réanalyser Historique
+            <input
+              type="file"
+              accept=".txt"
+              onChange={(e) => {
+                if (e.target.files?.[0]) {
+                  importHistory(e.target.files[0]);
+                }
+              }}
               className="absolute inset-0 opacity-0 cursor-pointer"
             />
           </Button>
@@ -194,14 +211,15 @@ export default function TrainingPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-3 font-mono text-xs">
               {logs.map((log, i) => {
-                let colorClass = "text-zinc-400"; // Default
+                let colorClass = "text-zinc-300"; // Default
+                if (log.includes("Epoch ")) colorClass = "text-zinc-500";
                 if (log.includes("loss=")) colorClass = "text-blue-400";
                 if (log.includes("⚠️") || log.includes("Balancing"))
                   colorClass = "text-yellow-500";
                 if (log.includes("🛑")) colorClass = "text-red-500";
                 if (
                   log.includes("♻️") ||
-                  log.includes("Training completed") ||
+                  log.includes("Training Complete") ||
                   log.includes("Manifest")
                 )
                   colorClass = "text-green-500";
