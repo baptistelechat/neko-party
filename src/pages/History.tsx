@@ -1,6 +1,6 @@
-import { Button } from "@/ui/button";
-import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export default function History() {
   const navigate = useNavigate();
@@ -13,7 +13,7 @@ export default function History() {
         </Button>
         <h1 className="text-2xl font-bold">Historique</h1>
       </div>
-      
+
       <div className="text-center text-muted-foreground mt-12">
         Aucune partie enregistrée pour le moment.
       </div>

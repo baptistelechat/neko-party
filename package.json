@@ -8,12 +8,15 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check": "tsc -b --noEmit"
+    "check": "tsc -b --noEmit",
+    "generate-dataset-manifest": "node scripts/generate-manifest.js"
   },
   "dependencies": {
+    "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-toggle": "^1.1.10",
     "@tailwindcss/vite": "^4.1.18",
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow-models/knn-classifier": "^1.2.6",
@@ -22,16 +25,21 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "idb": "^8.0.3",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.511.0",
+    "next-themes": "^0.4.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.11.0",
+    "recharts": "^2.15.4",
+    "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "tesseract.js": "^7.0.0",
     "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
+    "@types/jszip": "^3.4.1",
     "@types/node": "^22.19.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
