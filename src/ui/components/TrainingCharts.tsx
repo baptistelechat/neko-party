@@ -15,7 +15,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/ui/chart";
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Label, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
 
 interface TrainingChartsProps {
   data: TrainingProgress[];
@@ -44,6 +44,14 @@ const lossConfig = {
 } satisfies ChartConfig;
 
 export function TrainingCharts({ data }: TrainingChartsProps) {
+  // Find epoch with best validation loss (Early Stopping point)
+  const bestEpoch =
+    data.length > 0
+      ? data.reduce((best, current) =>
+          current.val_loss < best.val_loss ? current : best
+        ).epoch
+      : 0;
+
   const lastAcc = data.length > 0 ? data[data.length - 1].acc : 0;
   const lastValAcc = data.length > 0 ? data[data.length - 1].val_acc : 0;
 
@@ -83,6 +91,20 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
                 tick={{ fill: "#a1a1aa" }}
               />
               <YAxis hide domain={[0, 1]} />
+              {bestEpoch > 0 && (
+                <ReferenceLine
+                  x={bestEpoch}
+                  stroke="#facc15"
+                  strokeDasharray="3 3"
+                >
+                  <Label
+                    value="Best"
+                    position="insideTopLeft"
+                    fill="#facc15"
+                    fontSize={12}
+                  />
+                </ReferenceLine>
+              )}
               <ChartTooltip
                 cursor={false}
                 content={
@@ -153,6 +175,20 @@ export function TrainingCharts({ data }: TrainingChartsProps) {
                 tick={{ fill: "#a1a1aa" }}
               />
               <YAxis hide />
+              {bestEpoch > 0 && (
+                <ReferenceLine
+                  x={bestEpoch}
+                  stroke="#facc15"
+                  strokeDasharray="3 3"
+                >
+                  <Label
+                    value="Best"
+                    position="insideTopLeft"
+                    fill="#facc15"
+                    fontSize={12}
+                  />
+                </ReferenceLine>
+              )}
               <ChartTooltip
                 cursor={false}
                 content={
