@@ -1,6 +1,6 @@
+import { ConfusionMatrixResult } from "@/modules/training/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { ConfusionMatrixResult } from "@/modules/training/Trainer";
 
 interface ConfusionMatrixProps {
   data: ConfusionMatrixResult;
@@ -37,13 +37,11 @@ export function ConfusionMatrix({ data }: ConfusionMatrixProps) {
   const getCellColor = (val: number, isDiagonal: boolean) => {
     if (isDiagonal) {
       // Green scale for diagonal (True Positives)
-      // Low accuracy on diagonal is bad, but we want to highlight presence.
-      // Opacity based on value.
       return `rgba(74, 222, 128, ${0.2 + val * 0.8})`; // green-400 base
     } else {
       // Red scale for errors
       if (val === 0) return "transparent";
-      return `rgba(248, 113, 113, ${Math.min(1, val * 2)})`; // red-400 base, amplified visibility
+      return `rgba(248, 113, 113, ${Math.min(1, val * 2)})`; // red-400 base
     }
   };
 

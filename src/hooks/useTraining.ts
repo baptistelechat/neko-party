@@ -1,8 +1,5 @@
-import {
-  ConfusionMatrixResult,
-  Trainer,
-  TrainingConfig,
-} from "@/modules/training/Trainer";
+import { CNNTrainer } from "../modules/training/CNNTrainer";
+import { ConfusionMatrixResult, TrainingConfig } from "../modules/training/types";
 import * as tf from "@tensorflow/tfjs";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -49,7 +46,7 @@ export const useTraining = () => {
     useState<ConfusionMatrixResult | null>(null);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const trainerRef = useRef<Trainer>(new Trainer());
+  const trainerRef = useRef<CNNTrainer>(new CNNTrainer());
 
   // Cleanup on unmount
   useEffect(() => {

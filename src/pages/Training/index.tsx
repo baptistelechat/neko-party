@@ -1,88 +1,59 @@
-import { useTraining } from "@/hooks/useTraining";
-import { Play } from "lucide-react";
 
-import { ConfusionMatrix } from "@/components/ConfusionMatrix";
-import { TrainingCharts } from "@/pages/Training/components/TrainingCharts";
-import { DatasetLoader } from "@/pages/Training/components/DatasetLoader";
-import { DatasetStats } from "@/pages/Training/components/DatasetStats";
-import { TrainingControls } from "@/pages/Training/components/TrainingControls";
-import { TrainingExport } from "@/pages/Training/components/TrainingExport";
-import { TrainingLogs } from "@/pages/Training/components/TrainingLogs";
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { ArrowLeft, Cpu, Eye } from "lucide-react";
+import RecognitionTraining from "./Recognition";
+import DetectionTraining from "./Detection";
 
-export default function TrainingPage() {
-  const {
-    files,
-    isTraining,
-    logs,
-    datasetStats,
-    progress,
-    history,
-    elapsedTime,
-    isModelReady,
-    confusionMatrix,
-    handleFileChange,
-    loadDefaultDataset,
-    startTraining,
-    stopTraining,
-    exportModel,
-    importHistory,
-  } = useTraining();
-
-  const formatTime = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    return `${h}h ${m}m ${s}s`;
-  };
-
-  const handleExport = () => {
-    exportModel(formatTime(elapsedTime));
-  };
+export default function TrainingLayout() {
+  const [activeTab, setActiveTab] = useState<"recognition" | "detection">("recognition");
 
   return (
-    <div className="p-6 bg-zinc-900 min-h-screen text-white flex flex-col gap-6">
-      <h1 className="text-2xl font-bold flex items-center gap-2">
-        <Play className="text-blue-500" />
-        Entraînement Local Convolutional Neural Network (CNN)
-      </h1>
-
-      <DatasetLoader
-        onLoadDefault={loadDefaultDataset}
-        onFileChange={handleFileChange}
-        onImportHistory={importHistory}
-        filesCount={files.length}
-      />
-
-      <TrainingControls
-        isTraining={isTraining}
-        filesCount={files.length}
-        onStart={startTraining}
-        onStop={stopTraining}
-        elapsedTime={elapsedTime}
-        progress={progress}
-      />
-
-      {/* Logs & Stats Grid */}
-      <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 h-80">
-        <TrainingLogs logs={logs} />
-        <DatasetStats stats={datasetStats} />
+    <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
+      {/* Header */}
+      <div className="h-14 bg-zinc-900 border-b border-zinc-800 flex items-center px-4 justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <Link to="/" className="p-2 -ml-2 hover:bg-zinc-800 rounded-full transition-colors">
+            <ArrowLeft className="w-5 h-5 text-zinc-400" />
+          </Link>
+          <h1 className="font-bold text-sm">Centre d'Entraînement Neko</h1>
+        </div>
       </div>
 
-      {/* Charts */}
-      {history.length > 0 && (
-        <div className="mt-4">
-          <TrainingCharts data={history} />
-        </div>
-      )}
+      {/* Tabs */}
+      <div className="flex border-b border-zinc-800 bg-zinc-900/50">
+        <button
+            onClick={() => setActiveTab("recognition")}
+            className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative ${
+                activeTab === "recognition" ? "text-blue-400" : "text-zinc-500 hover:text-zinc-300"
+            }`}
+        >
+            <Cpu className="w-4 h-4" />
+            Reconnaissance (CNN)
+            {activeTab === "recognition" && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
+            )}
+        </button>
+        <button
+            onClick={() => setActiveTab("detection")}
+            className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative ${
+                activeTab === "detection" ? "text-green-400" : "text-zinc-500 hover:text-zinc-300"
+            }`}
+        >
+            <Eye className="w-4 h-4" />
+            Détection (YOLO)
+            {activeTab === "detection" && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-500" />
+            )}
+        </button>
+      </div>
 
-      {/* Confusion Matrix */}
-      {confusionMatrix && (
-        <div className="mt-4">
-          <ConfusionMatrix data={confusionMatrix} />
+      {/* Content */}
+      <div className="flex-1 p-4 md:p-6 overflow-y-auto">
+        <div className="max-w-6xl mx-auto">
+            {activeTab === "recognition" ? <RecognitionTraining /> : <DetectionTraining />}
         </div>
-      )}
-
-      <TrainingExport isModelReady={isModelReady} onExport={handleExport} />
+      </div>
     </div>
   );
 }

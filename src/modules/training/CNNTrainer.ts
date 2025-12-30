@@ -1,23 +1,17 @@
 import * as tf from "@tensorflow/tfjs";
 import JSZip from "jszip";
+import { TrainingConfig, ConfusionMatrixResult } from "./types";
 
-export interface TrainingConfig {
-  epochs: number;
-  batchSize: number;
-  earlyStopping?: {
-    enabled: boolean;
-    patience: number; // Nombre d'époques sans amélioration avant arrêt
-    minDelta: number; // Amélioration minimale requise
-  };
-}
+export class CNNTrainer {
+  private static instance: CNNTrainer;
 
-export interface ConfusionMatrixResult {
-  matrix: number[][];
-  normalized: number[][];
-  labels: string[];
-}
+  public static getInstance(): CNNTrainer {
+    if (!CNNTrainer.instance) {
+      CNNTrainer.instance = new CNNTrainer();
+    }
+    return CNNTrainer.instance;
+  }
 
-export class Trainer {
   private model: tf.LayersModel | null = null;
   private labels: string[] = [];
   private stopRequested: boolean = false;
