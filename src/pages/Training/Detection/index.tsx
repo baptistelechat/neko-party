@@ -108,18 +108,19 @@ export default function DetectionTraining() {
               <p className="text-zinc-500 mb-2">
                 # Dans le dossier du projet :
               </p>
-              <p className="mb-1">pnpm install</p>
-              <p className="mb-1"># 1. Convertir le dataset (JSON vers YOLO)</p>
-              <p className="mb-3 text-white">
-                npx tsx scripts/convert-dataset-yolo.ts
-              </p>
 
-              <p className="mb-1"># 2. Lancer l'entraînement Python</p>
               <p className="mb-1 text-zinc-500">
-                # (Assurez-vous d'avoir Python 3.8+ et pip install ultralytics
-                tensorflowjs)
+                # 1. Convertir le dataset (JSON vers YOLO)
               </p>
-              <p className="text-white">python scripts/train_yolo.py</p>
+              <p className="mb-3 text-white">pnpm convert-dataset-yolo</p>
+
+              <p className="mb-1 text-zinc-500">
+                # 2. Lancer l'entraînement Python (Setup + Train + Export)
+              </p>
+              <p className="mb-3 text-white">pnpm train-yolo</p>
+              <p className="text-zinc-500 text-[10px]">
+                Ou via PowerShell : .\scripts\python_training\train.ps1
+              </p>
             </div>
           </CardContent>
         </Card>

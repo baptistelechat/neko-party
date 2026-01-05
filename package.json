@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "check": "tsc -b --noEmit",
-    "generate-dataset-manifest": "node scripts/generate-manifest.js"
+    "generate-dataset-manifest": "node scripts/generate-manifest.js",
+    "convert-dataset-yolo": "npx tsx scripts/convert-dataset-yolo.ts",
+    "train-yolo": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/python_training/train.ps1"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",

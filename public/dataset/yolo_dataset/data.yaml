@@ -1,0 +1,7 @@
+path: ../yolo_dataset # dataset root dir
+train: images/train
+val: images/val
+test: # test images (optional)
+
+nc: 1
+names: ["card"]
