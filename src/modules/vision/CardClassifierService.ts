@@ -34,12 +34,12 @@ export class CardClassifierService {
     // Load Custom CNN Model
     try {
       console.log(
-        "Attempting to load CNN model from /models/neko-skyjo-model.json..."
+        "Attempting to load CNN model from /models/recognition/neko-skyjo-model.json..."
       );
       // Try to load from public folder
-      // Note: This path assumes you placed the model files in /public/models/
+      // Note: This path assumes you placed the model files in /public/models/recognition/
       this.cnnModel = await tf.loadLayersModel(
-        "/models/neko-skyjo-model.json",
+        "/models/recognition/neko-skyjo-model.json",
         {
           strict: true, // Force strict loading to catch shape mismatch
         }
@@ -52,7 +52,7 @@ export class CardClassifierService {
       console.error("Detailed Error:", errorMessage);
       if (errorMessage.includes("404")) {
         console.error(
-          "HINT: Ensure 'neko-skyjo-model.json' and 'neko-skyjo-model.weights.bin' are in 'public/models/'"
+          "HINT: Ensure 'neko-skyjo-model.json' and 'neko-skyjo-model.weights.bin' are in 'public/models/recognition/'"
         );
       }
     }

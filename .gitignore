@@ -376,6 +376,7 @@ $RECYCLE.BIN/
 *.pt
 *.pth
 *.onnx
+!public/models/detection/neko-skyjo-yolo_model.onnx
 **/runs/
 
 # 🛡️ Whitelist essential scripts (just in case)

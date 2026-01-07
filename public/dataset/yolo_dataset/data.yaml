@@ -1,7 +1,7 @@
-path: ../yolo_dataset # dataset root dir
+path: C:/Users/DM/Desktop/DEV/perso/neko-party/public/dataset/yolo_dataset # dataset root dir
 train: images/train
-val: images/val
-test: # test images (optional)
+val: images/validation
+test:  # test images (optional)
 
 nc: 1
-names: ["card"]
+names: ['card']

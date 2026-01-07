@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import { defineConfig } from "vite";
 import { qrcode } from "vite-plugin-qrcode";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -14,6 +15,18 @@ export default defineConfig({
     tailwindcss(),
     qrcode(),
     basicSsl(),
+    viteStaticCopy({
+      targets: [
+        {
+          src: "node_modules/onnxruntime-web/dist/*.wasm",
+          dest: "models/detection",
+        },
+        {
+          src: "node_modules/onnxruntime-web/dist/*.mjs",
+          dest: "models/detection",
+        },
+      ],
+    }),
     {
       name: "upload-dataset-server",
       configureServer(server) {

@@ -762,6 +762,8 @@ export class CNNTrainer {
    * - neko-skyjo-model.json
    * - neko-skyjo-model.weights.bin
    * - neko-skyjo-model-logs.txt
+   * 
+   * (Extract these to /public/models/recognition/)
    */
   public async exportModel(
     elapsedTime?: string,

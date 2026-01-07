@@ -14,9 +14,9 @@ const OUTPUT_DIR = path.join(PROJECT_ROOT, "public", "dataset", "yolo_dataset");
 // Create output directories
 const DIRS = [
   path.join(OUTPUT_DIR, "images", "train"),
-  path.join(OUTPUT_DIR, "images", "val"),
+  path.join(OUTPUT_DIR, "images", "validation"),
   path.join(OUTPUT_DIR, "labels", "train"),
-  path.join(OUTPUT_DIR, "labels", "val"),
+  path.join(OUTPUT_DIR, "labels", "validation"),
 ];
 
 // --- Helpers ---
@@ -133,11 +133,11 @@ async function main() {
   // User asked for "fixed 1200/300" for 1500 images. Math.floor(0.8 * 1500) = 1200.
 
   const trainSet = new Set(allEntries.slice(0, trainSize));
-  // The rest is val
+  // The rest is validation
 
   let processedCount = 0;
   let trainCount = 0;
-  let valCount = 0;
+  let validationCount = 0;
 
   // Group by Zip to minimize file I/O
   const entriesByZip = new Map<string, DatasetEntry[]>();
@@ -158,9 +158,9 @@ async function main() {
 
     for (const entry of entries) {
       const isTrain = trainSet.has(entry);
-      const type = isTrain ? "train" : "val";
+      const type = isTrain ? "train" : "validation";
       if (isTrain) trainCount++;
-      else valCount++;
+      else validationCount++;
 
       // Read Image
       const rawImagePath = `raw/${entry.rawImageName}`;
@@ -232,10 +232,12 @@ async function main() {
   // Generate data.yaml
   // Use absolute path to avoid confusion during training
   const absOutputDir = OUTPUT_DIR.replace(/\\/g, "/");
+  console.log(`📝 Generating data.yaml with absolute path: ${absOutputDir}`);
+
   const yamlContent = `
 path: ${absOutputDir} # dataset root dir
 train: images/train
-val: images/val
+val: images/validation
 test:  # test images (optional)
 
 nc: 1
@@ -249,7 +251,7 @@ names: ['card']
 --------------------------------
 Total Images: ${processedCount}
 Train: ${trainCount}
-Val: ${valCount}
+Validation: ${validationCount}
 Output Directory: ${OUTPUT_DIR}
 --------------------------------
 You can now train your YOLO model using this dataset.

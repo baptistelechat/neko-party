@@ -12,9 +12,48 @@ DATASET_YAML = os.path.join(PROJECT_ROOT, "public", "dataset", "yolo_dataset", "
 PROJECT_NAME = "neko_card_detector"
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "runs")
 TFJS_OUTPUT_DIR = os.path.join(PROJECT_ROOT, "public", "models", "yolo_tfjs")
+ONNX_OUTPUT_PATH = os.path.join(PROJECT_ROOT, "public", "models", "detection", "neko-skyjo-yolo_model.onnx")
+
+def update_dataset_yaml():
+    """Updates data.yaml with the correct absolute path for the current machine."""
+    if not os.path.exists(DATASET_YAML):
+        print(f"❌ Error: {DATASET_YAML} not found!")
+        sys.exit(1)
+
+    dataset_root = os.path.join(PROJECT_ROOT, "public", "dataset", "yolo_dataset")
+    # Convert to forward slashes for YAML compatibility (even on Windows)
+    dataset_root = dataset_root.replace("\\", "/")
+    
+    with open(DATASET_YAML, 'r') as f:
+        lines = f.readlines()
+    
+    new_lines = []
+    path_updated = False
+    
+    for line in lines:
+        if line.strip().startswith('path:'):
+            new_lines.append(f"path: {dataset_root} # dataset root dir\n")
+            path_updated = True
+        elif line.strip().startswith('val:'):
+             # Ensure val path points to validation folder
+             new_lines.append("val: images/validation\n")
+        else:
+            new_lines.append(line)
+            
+    if not path_updated:
+        # If path line wasn't found, insert it at the top
+        new_lines.insert(0, f"path: {dataset_root} # dataset root dir\n")
+    
+    with open(DATASET_YAML, 'w') as f:
+        f.writelines(new_lines)
+    
+    print(f"✅ Updated data.yaml with absolute path: {dataset_root}")
 
 def train_yolo():
     from ultralytics import YOLO
+
+    # Ensure dataset path is correct for this machine
+    update_dataset_yaml()
 
     print("🚀 Starting YOLO Training...")
     
@@ -23,10 +62,12 @@ def train_yolo():
 
     # Train the model
     # imgsz=640 is standard
-    # epochs=50 (adjust based on needs)
+    # epochs=100 (increased to allow Early Stopping to trigger)
+    # patience=15 (stop if no improvement for 15 epochs)
     results = model.train(
         data=DATASET_YAML,
-        epochs=50,
+        epochs=100,
+        patience=15,
         imgsz=640,
         project=OUTPUT_DIR,
         name=PROJECT_NAME,
@@ -39,34 +80,34 @@ def train_yolo():
     best_weights = os.path.join(OUTPUT_DIR, PROJECT_NAME, "weights", "best.pt")
     return best_weights
 
-def export_to_tfjs(weights_path):
+def export_to_onnx(weights_path):
     from ultralytics import YOLO
     
-    print(f"🔄 Exporting {weights_path} to TFJS...")
+    print(f"🔄 Exporting {weights_path} to ONNX...")
     
     model = YOLO(weights_path)
     
-    # Export to TFJS
-    # format='tfjs' automatically uses tensorflowjs_converter
-    model.export(format="tfjs")
+    # Export to ONNX
+    export_path = model.export(format="onnx")
     
-    # Move result to our target folder
-    # Ultralytics exports to a folder named '{weights}_web_model' usually in the same dir as weights
-    source_dir = weights_path.replace(".pt", "_web_model")
-    
-    if os.path.exists(TFJS_OUTPUT_DIR):
-        print(f"🧹 Cleaning existing output dir: {TFJS_OUTPUT_DIR}")
-        shutil.rmtree(TFJS_OUTPUT_DIR)
-    
-    # Ensure parent dir exists
-    os.makedirs(os.path.dirname(TFJS_OUTPUT_DIR), exist_ok=True)
+    # Handle return value (it might be a string or list)
+    if isinstance(export_path, list):
+        export_path = export_path[0]
         
-    if os.path.exists(source_dir):
-        shutil.move(source_dir, TFJS_OUTPUT_DIR)
-        print(f"📂 Model exported to: {TFJS_OUTPUT_DIR}")
-        print("✅ Ready to use in React!")
+    # Sometimes export returns None or just prints path, so we verify file existence
+    expected_onnx = weights_path.replace(".pt", ".onnx")
+    
+    if os.path.exists(expected_onnx):
+        print(f"📂 Exported to: {expected_onnx}")
+        
+        # Ensure parent dir exists
+        os.makedirs(os.path.dirname(ONNX_OUTPUT_PATH), exist_ok=True)
+        
+        print(f"📋 Copying to {ONNX_OUTPUT_PATH}...")
+        shutil.copy2(expected_onnx, ONNX_OUTPUT_PATH)
+        print("✅ ONNX model updated in public folder! Ready for ObjectDetector.ts")
     else:
-        print(f"⚠️ Could not find exported model at {source_dir}. Check console logs.")
+        print(f"⚠️ Could not find exported ONNX model at {expected_onnx}. Check console logs.")
 
 def main():
     try:
@@ -80,7 +121,7 @@ def main():
         best_weights = train_yolo()
         
         # 3. Export
-        export_to_tfjs(best_weights)
+        export_to_onnx(best_weights)
 
     except Exception as e:
         print(f"❌ Error: {e}")
